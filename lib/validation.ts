@@ -30,3 +30,8 @@ export const zJobCreate = z.object({
   location: zLocation,
   photos: z.array(z.string()).max(6).optional(),
 });
+
+export const zInquiryCreate = z.object({
+  jobId: z.string().min(1, "jobId required"),
+  note: z.string().max(500).optional(),
+});
