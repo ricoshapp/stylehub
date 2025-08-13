@@ -1,7 +1,7 @@
 // app/jobs-grid/page.tsx
 import { prisma } from "@/lib/db";
 import Link from "next/link";
-import { MapPin, BadgeDollarSign, Briefcase, Scissors, Award } from "lucide-react";
+import { MapPin, BadgeDollarSign, Briefcase, Scissors, Award, Info } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +29,62 @@ function payText(job: any) {
   return out.join(" · ") || "—";
 }
 
+const DEMO_ROWS = [
+  {
+    id: "demo-1",
+    businessName: "Downtown Barber Co.",
+    title: "Chair available — walk-ins welcome",
+    role: "barber",
+    schedule: "full_time",
+    compModel: "hourly",
+    payMin: 24,
+    payMax: null,
+    payUnit: "$/hr",
+    payVisible: true,
+    experienceText: "2+ yrs",
+    location: { city: "San Diego", state: "CA" },
+    photos: [{ url: "/placeholder.jpg" }],
+  },
+  {
+    id: "demo-2",
+    businessName: "Pacific Ink Studio",
+    title: "Tattoo artist booth — high foot traffic",
+    role: "tattoo_artist",
+    schedule: "any",
+    compModel: "booth_rent",
+    payMin: 400,
+    payMax: null,
+    payUnit: "$/wk",
+    payVisible: true,
+    experienceText: "Portfolio req.",
+    location: { city: "Oceanside", state: "CA" },
+    photos: [{ url: "/placeholder.jpg" }],
+  },
+  {
+    id: "demo-3",
+    businessName: "Luxe Lashes",
+    title: "Lash tech — hybrid comp",
+    role: "lash_tech",
+    schedule: "part_time",
+    compModel: "hybrid",
+    payMin: 35, // commission %
+    payMax: 20, // wage $/hr
+    payUnit: "$/hr",
+    payVisible: true,
+    experienceText: "Any",
+    location: { city: "Chula Vista", state: "CA" },
+    photos: [{ url: "/placeholder.jpg" }],
+  },
+];
+
 export default async function JobsGridPage() {
-  const jobs = await prisma.job.findMany({
+  const dbJobs = await prisma.job.findMany({
     orderBy: { createdAt: "desc" },
     include: { location: true, photos: { orderBy: { sortOrder: "asc" } } },
   });
+
+  const jobs = dbJobs.length ? dbJobs : DEMO_ROWS;
+  const demoMode = dbJobs.length === 0;
 
   return (
     <div className="space-y-4">
@@ -54,85 +105,89 @@ export default async function JobsGridPage() {
         </div>
       </div>
 
-      {jobs.length === 0 ? (
-        <div className="rounded-xl border border-slate-800 bg-zinc-950/60 p-6 text-slate-200">
-          No jobs yet. Post one or run <code>npm run seed</code>.
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {jobs.map((job) => {
-            const photo = job.photos?.[0]?.url || "/placeholder.jpg";
-            const loc = [job.location?.city, job.location?.state].filter(Boolean).join(", ") || "—";
-            const schedule = job.schedule ? titleize(job.schedule) : "—";
-            const comp = job.compModel ? titleize(job.compModel) : "—";
-            const exp = job.experienceText || "Any";
-
-            return (
-              <Link
-                key={job.id}
-                href={`/jobs/${job.id}`}
-                className="block rounded-xl border border-slate-800 bg-zinc-950/60 hover:bg-zinc-900/60 transition"
-              >
-                {/* Desktop row */}
-                <div className="hidden md:flex items-stretch gap-3 p-3">
-                  {/* Photo fixed column */}
-                  <div className="w-[208px] rounded-lg overflow-hidden border border-slate-800 bg-black shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={photo} alt="" className="w-full h-28 object-cover" />
-                  </div>
-
-                  {/* 7-col info grid */}
-                  <div className="grid grid-cols-7 gap-3 flex-1 items-center">
-                    {/* Business & Title */}
-                    <div className="min-w-0">
-                      <div className="font-semibold truncate text-slate-100">{job.businessName}</div>
-                      <div className="text-sm text-slate-300 line-clamp-2 break-words">{job.title}</div>
-                    </div>
-
-                    {/* Service */}
-                    <div className="text-sm text-slate-100">{titleize(job.role)}</div>
-
-                    {/* Schedule */}
-                    <div className="text-sm text-slate-100">{schedule}</div>
-
-                    {/* Experience */}
-                    <div className="text-sm text-slate-100">{exp}</div>
-
-                    {/* Compensation */}
-                    <div className="text-sm text-slate-100">Compensation: {comp}</div>
-
-                    {/* Payment/Wage */}
-                    <div className="text-sm text-slate-100">{payText(job)}</div>
-
-                    {/* Location */}
-                    <div className="text-sm text-slate-100">{loc}</div>
-                  </div>
-                </div>
-
-                {/* Mobile card */}
-                <div className="md:hidden p-3 space-y-2">
-                  <div className="rounded-lg overflow-hidden border border-slate-800 bg-black">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={photo} alt="" className="w-full h-40 object-cover" />
-                  </div>
-                  <div className="font-semibold text-slate-100">{job.businessName}</div>
-                  <div className="text-sm text-slate-300">{job.title}</div>
-                  <div className="grid grid-cols-2 gap-2 text-sm pt-2">
-                    <div><span className="text-slate-400">Service: </span>{titleize(job.role)}</div>
-                    <div><span className="text-slate-400">Schedule: </span>{schedule}</div>
-                    <div><span className="text-slate-400">Experience: </span>{exp}</div>
-                    <div><span className="text-slate-400">Comp: </span>{comp}</div>
-                    <div className="col-span-2"><span className="text-slate-400">Pay: </span>{payText(job)}</div>
-                    <div className="col-span-2 flex items-center gap-1">
-                      <MapPin className="h-4 w-4" /> {loc}
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+      {demoMode && (
+        <div className="rounded-lg border border-slate-800 bg-zinc-950/60 p-3 text-sm text-slate-300 flex items-center gap-2">
+          <Info className="h-4 w-4" />
+          Showing demo jobs (no records in your database yet). Post one at <code>/post</code> to see live data.
         </div>
       )}
+
+      <div className="space-y-3">
+        {jobs.map((job: any) => {
+          const photo = job.photos?.[0]?.url || "/placeholder.jpg";
+          const loc = [job.location?.city ?? job.location?.city, job.location?.state ?? job.location?.state]
+            .filter(Boolean)
+            .join(", ") || [job?.location?.city, job?.location?.state].filter(Boolean).join(", ") || "—";
+          const schedule = job.schedule ? titleize(job.schedule) : "—";
+          const comp = job.compModel ? titleize(job.compModel) : "—";
+          const exp = job.experienceText || "Any";
+          const href = demoMode ? "#" : `/jobs/${job.id}`;
+
+          return (
+            <Link
+              key={job.id}
+              href={href}
+              className={`block rounded-xl border border-slate-800 bg-zinc-950/60 ${demoMode ? "pointer-events-none opacity-90" : "hover:bg-zinc-900/60"} transition`}
+            >
+              {/* Desktop row */}
+              <div className="hidden md:flex items-stretch gap-3 p-3">
+                {/* Photo fixed column */}
+                <div className="w-[208px] rounded-lg overflow-hidden border border-slate-800 bg-black shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photo} alt="" className="w-full h-28 object-cover" />
+                </div>
+
+                {/* 7-col info grid */}
+                <div className="grid grid-cols-7 gap-3 flex-1 items-center">
+                  {/* Business & Title */}
+                  <div className="min-w-0">
+                    <div className="font-semibold truncate text-slate-100">{job.businessName}</div>
+                    <div className="text-sm text-slate-300 line-clamp-2 break-words">{job.title}</div>
+                  </div>
+
+                  {/* Service */}
+                  <div className="text-sm text-slate-100">{titleize(job.role)}</div>
+
+                  {/* Schedule */}
+                  <div className="text-sm text-slate-100">{schedule}</div>
+
+                  {/* Experience */}
+                  <div className="text-sm text-slate-100">{exp}</div>
+
+                  {/* Compensation */}
+                  <div className="text-sm text-slate-100">Compensation: {comp}</div>
+
+                  {/* Payment/Wage */}
+                  <div className="text-sm text-slate-100">{payText(job)}</div>
+
+                  {/* Location */}
+                  <div className="text-sm text-slate-100">{loc}</div>
+                </div>
+              </div>
+
+              {/* Mobile card */}
+              <div className="md:hidden p-3 space-y-2">
+                <div className="rounded-lg overflow-hidden border border-slate-800 bg-black">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photo} alt="" className="w-full h-40 object-cover" />
+                </div>
+                <div className="font-semibold text-slate-100">{job.businessName}</div>
+                <div className="text-sm text-slate-300">{job.title}</div>
+                <div className="grid grid-cols-2 gap-2 text-sm pt-2">
+                  <div><span className="text-slate-400">Service: </span>{titleize(job.role)}</div>
+                  <div><span className="text-slate-400">Schedule: </span>{schedule}</div>
+                  <div><span className="text-slate-400">Experience: </span>{exp}</div>
+                  <div><span className="text-slate-400">Comp: </span>{comp}</div>
+                  <div className="col-span-2"><span className="text-slate-400">Pay: </span>{payText(job)}</div>
+                  <div className="col-span-2 flex items-center gap-1">
+                    <MapPin className="h-4 w-4" /> {loc}
+                  </div>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }
