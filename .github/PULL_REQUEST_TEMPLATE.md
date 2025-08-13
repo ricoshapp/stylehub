@@ -1,23 +1,19 @@
-## What & Why
-<!-- Brief summary of the change and the problem it solves -->
+## Summary
+<!-- What & why -->
 
-## Files touched
-- app/...
-- components/...
-- lib/...
-- prisma/...
+## Changes
+- [ ] User-facing behavior
+- [ ] API changes
+- [ ] DB schema/migrations
 
-## DB
-- Migration? yes/no
-- Seed changed? yes/no
+## Screenshots / Video
+<!-- drag-and-drop -->
 
 ## How to test
-1. Steps to reproduce:
-2. Expected result:
-3. Visual check:
+1. ...
+2. ...
 
-## Risks
-- User-facing?
-- Requires env changes?
-
-## Screenshots
+## Checklist
+- [ ] No secrets committed
+- [ ] Lints/Typecheck pass (`npm run lint`, `npm run typecheck`)
+- [ ] Prisma schema validated (`npx prisma validate`)

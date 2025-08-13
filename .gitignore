@@ -1,21 +1,33 @@
-# build + deps
+# dependencies & build
 node_modules/
 .next/
-.vercel/
-.turbo/
+out/
 dist/
-coverage/
-*.log
 
 # env & secrets
-.env*
+.env
+.env.local
+.env.*.local
 
-# uploads & local DB
-public/uploads/
+# cache & logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.cache/
+.eslintcache
+
+# prisma
 prisma/dev.db
+prisma/dev.db-journal
 
-# OS/editor cruft
+# uploads (local only)
+public/uploads/
+
+# OS/editor
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
