@@ -264,6 +264,30 @@ model Favorite {
   @@index([jobId])
 }
 
+model Inquiry {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // Who sent the enquiry (Talent)
+  senderId  String
+  sender    User     @relation(fields: [senderId], references: [id])
+
+  // Which job the enquiry targets
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id])
+
+  // Convenience: who owns the job (Employer). We store it to query fast.
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id])
+
+  note      String?  @db.VarChar(500)
+
+  @@unique([senderId, jobId])            // prevent duplicates
+  @@index([ownerId, createdAt])
+  @@index([senderId, createdAt])
+}
+
+
 model Report {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
