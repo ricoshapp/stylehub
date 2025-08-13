@@ -1,0 +1,307 @@
+// prisma/schema.prisma
+
+// ---------- Generator & Datasource ----------
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+enum UserRole {
+  employer
+  talent
+  admin
+}
+
+enum JobRole {
+  barber
+  cosmetologist
+  esthetician
+  nail_tech
+  lash_tech
+  tattoo_artist
+  piercer
+}
+
+enum CompModel {
+  booth_rent
+  commission
+  hourly
+  hybrid
+}
+
+enum EmploymentType {
+  w2 // shown as "Employee" in UI
+  c1099 // shown as "Independent Contractor" in UI
+}
+
+enum ScheduleType {
+  full_time
+  part_time
+}
+
+// ---------- Core Models ----------
+model User {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // Auth identity
+  email        String? @unique
+  username     String? @unique
+  passwordHash String?
+
+  // Display + role
+  name String?
+  role UserRole @default(talent)
+
+  // Relations
+  employerProfiles EmployerProfile[]
+  talentProfiles   TalentProfile[]
+  jobs             Job[]             @relation("JobOwner")
+  applications     Application[]     @relation("Applicant")
+  messagesSent     Message[]         @relation("MessagesSent")
+  messagesRecv     Message[]         @relation("MessagesRecv")
+  favorites        Favorite[]
+  auditLogs        AuditLog[]
+  Report           Report[]
+
+  @@index([role])
+}
+
+model EmployerProfile {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  shopName    String
+  phone       String? // optional now; can enforce later
+  instagram   String?
+  website     String?
+  hoursJson   Json? // optional structured hours
+  photosJson  Json? // gallery (array of URLs)
+  description String?
+
+  location   Location? @relation(fields: [locationId], references: [id])
+  locationId String?
+
+  jobs Job[]
+
+  @@index([userId])
+  @@index([locationId])
+}
+
+model TalentProfile {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  // Core fields (expand later)
+  roles         JobRole[]
+  yearsExp      Int?
+  languages     String[] // e.g., ["en","es"]
+  portfolioJson Json? // URLs of photos
+  instagram     String?
+  bio           String?
+  location      Location? @relation(fields: [locationId], references: [id])
+  locationId    String?
+
+  willingRadiusMiles Int? // for search
+
+  @@index([userId])
+  @@index([locationId])
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // Geo
+  lat Float
+  lng Float
+
+  // Address parts (what we actually store)
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  county       String?
+  state        String? // "CA"
+  postalCode   String?
+  country      String? // "US"
+
+  // Backrefs
+  employers     EmployerProfile[]
+  jobs          Job[]
+  TalentProfile TalentProfile[]
+
+  @@index([city, state])
+  @@index([lat, lng])
+}
+
+model Job {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // Display on card
+  businessName String
+  title        String // "Short title", max 120 in UI
+  role         JobRole
+
+  // Compensation
+  compModel  CompModel
+  payMin     Int? // whole numbers only
+  payMax     Int? // used for hybrid (wage)
+  payUnit    String // "%", "$/hr", "$/wk", "$/mo", "% + $/hr"
+  payVisible Boolean   @default(true)
+
+  // Employment & schedule
+  employmentType EmploymentType?
+  schedule       ScheduleType?
+  shiftDaysJson  Json? // boolean[7] Sun..Sat as stored array
+
+  // Experience snippet
+  experienceText String? // small text; "Any" if blank in UI
+
+  // Start date optional
+  startDate DateTime?
+
+  // Description (max 200 in UI)
+  description String?
+
+  // Photos
+  photos JobPhoto[]
+
+  // Relations
+  owner   User   @relation("JobOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+
+  employerProfile   EmployerProfile? @relation(fields: [employerProfileId], references: [id])
+  employerProfileId String?
+
+  location   Location? @relation(fields: [locationId], references: [id])
+  locationId String?
+
+  applications Application[]
+  favorites    Favorite[]
+  messages     Message[]
+  Report       Report[]
+  Boost        Boost[]
+
+  @@index([role, compModel, schedule, payVisible])
+  @@index([createdAt])
+  @@index([locationId])
+}
+
+model JobPhoto {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId String
+
+  url       String
+  sortOrder Int    @default(0)
+
+  @@index([jobId, sortOrder])
+}
+
+model Application {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId String
+
+  applicant   User   @relation("Applicant", fields: [applicantId], references: [id], onDelete: Cascade)
+  applicantId String
+
+  note   String?
+  status String? // "new", "reviewed", "accepted", "rejected" (freeform for now)
+
+  @@index([jobId])
+  @@index([applicantId])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  job   Job?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  jobId String?
+
+  sender   User   @relation("MessagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+  senderId String
+
+  recipient   User   @relation("MessagesRecv", fields: [recipientId], references: [id], onDelete: Cascade)
+  recipientId String
+
+  body String
+
+  @@index([jobId])
+  @@index([senderId])
+  @@index([recipientId])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId String
+
+  @@unique([userId, jobId])
+  @@index([userId])
+  @@index([jobId])
+}
+
+model Report {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  reporter   User?   @relation(fields: [reporterId], references: [id], onDelete: SetNull)
+  reporterId String?
+
+  job   Job?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  jobId String?
+
+  reason  String
+  details String?
+
+  resolved Boolean @default(false)
+}
+
+model Boost {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId String
+
+  kind     String // "featured", "top", etc.
+  startsAt DateTime
+  endsAt   DateTime
+
+  @@index([jobId, startsAt, endsAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorId String?
+
+  action String // "job.create", "job.update", "report.resolve", etc.
+  entity String? // e.g., "Job:abcd123"
+  meta   Json?
+}

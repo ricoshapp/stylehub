@@ -1,0 +1,21 @@
+# build + deps
+node_modules/
+.next/
+.vercel/
+.turbo/
+dist/
+coverage/
+*.log
+
+# env & secrets
+.env*
+
+# uploads & local DB
+public/uploads/
+prisma/dev.db
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
