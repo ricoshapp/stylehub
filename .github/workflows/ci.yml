@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      # Prisma: generate client & validate schema (no DB needed)
+      - run: npx prisma generate
+      - run: npx prisma validate
+
+      # Type + lint are fast & catch most issues without requiring DB
+      - run: npm run typecheck --if-present
+      - run: npm run lint --if-present
+
+      # Optional: Next build (uncomment once env issues are sorted)
+      # - run: npm run build
+      #   env:
+      #     NEXT_TELEMETRY_DISABLED: "1"
+      #     # Provide a dummy DATABASE_URL if your code reads it at build time:
+      #     DATABASE_URL: "postgresql://user:pass@localhost:5432/db?schema=public"
