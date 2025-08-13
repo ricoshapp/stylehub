@@ -3,67 +3,115 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 
+type ShiftDaysArray = [boolean, boolean, boolean, boolean, boolean, boolean, boolean];
+
+function toShiftDaysJson(arr?: boolean[]): Record<string, boolean> | null {
+  if (!Array.isArray(arr) || arr.length !== 7) return null;
+  const [sun, mon, tue, wed, thu, fri, sat] = arr.map(Boolean) as ShiftDaysArray;
+  return { sun, mon, tue, wed, thu, fri, sat };
+}
+
 export async function POST(req: Request) {
   try {
-    const me = await getCurrentUser();
-    if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const body = await req.json();
-
-    const businessName = String(body?.businessName || "").trim();
-    const title = String(body?.title || "").trim();
-    if (!businessName) return NextResponse.json({ error: "Business name required" }, { status: 400 });
-    if (!title) return NextResponse.json({ error: "Title required" }, { status: 400 });
-
-    const loc = body?.location ?? {};
-    if (typeof loc?.lat !== "number" || typeof loc?.lng !== "number") {
-      return NextResponse.json({ error: "Location lat/lng required" }, { status: 400 });
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Please sign in to post a job." }, { status: 401 });
     }
 
-    const created = await prisma.job.create({
+    const body = await req.json();
+    const {
+      businessName,
+      title,
+      role,
+      compModel,
+      payMin,
+      payMax,
+      payUnit,
+      payVisible,
+      employmentType,
+      schedule,
+      experienceText,
+      shiftDays, // [Sun..Sat] booleans from form
+      description,
+      startDate,
+      location,
+      photos,
+    } = body || {};
+
+    if (!businessName || !title) {
+      return NextResponse.json(
+        { error: "Business name and short title are required." },
+        { status: 400 }
+      );
+    }
+
+    // connect existing Location by id or create a new one
+    let locationConnect: { connect: { id: string } } | undefined;
+    if (location?.id) {
+      locationConnect = { connect: { id: String(location.id) } };
+    } else {
+      const loc = await prisma.location.create({
+        data: {
+          lat: Number(location?.lat ?? 32.7157),
+          lng: Number(location?.lng ?? -117.1611),
+          addressLine1: location?.addressLine1 ?? null,
+          city: location?.city ?? null,
+          county: location?.county ?? "San Diego County",
+          state: location?.state ?? "CA",
+          postalCode: location?.postalCode ?? null,
+          country: location?.country ?? "US",
+        },
+      });
+      locationConnect = { connect: { id: loc.id } };
+    }
+
+    const shiftDaysJson = toShiftDaysJson(shiftDays);
+
+    const job = await prisma.job.create({
       data: {
-        ownerId: me.id, // tie to current user
+        owner: { connect: { id: user.id } },
+
         businessName,
         title,
-        role: body?.role,
-        compModel: body?.compModel,
-        payMin: body?.payMin ?? null,
-        payMax: body?.payMax ?? null,
-        payUnit: body?.payUnit || "$/hr",
-        payVisible: !!body?.payVisible,
-        employmentType: body?.employmentType ?? null,
-        schedule: body?.schedule ?? null,
-        experienceText: body?.experienceText ?? null,
-        shiftDaysJson: Array.isArray(body?.shiftDays) ? body.shiftDays : [false,false,false,false,false,false,false],
-        apprenticeFriendly: !!body?.apprenticeFriendly,
-        perks: Array.isArray(body?.perks) ? body.perks : [],
-        description: body?.description || "",
-        location: {
-          create: {
-            lat: loc.lat,
-            lng: loc.lng,
-            addressLine1: loc.addressLine1 ?? null,
-            addressLine2: null,
-            city: loc.city ?? null,
-            county: loc.county ?? "San Diego County",
-            state: loc.state ?? "CA",
-            postalCode: loc.postalCode ?? null,
-            country: loc.country ?? "US",
-          },
-        },
-        photos: {
-          create: Array.isArray(body?.photos) && body.photos.length
-            ? body.photos.map((u: string, i: number) => ({ url: u, sortOrder: i }))
-            : [{ url: "/placeholder.jpg", sortOrder: 0 }],
-        },
+        role,
+        compModel,
+
+        // compensation
+        payMin: payMin ?? null,
+        payMax: payMax ?? null,
+        payUnit: payUnit ?? "$/hr",
+        payVisible: !!payVisible,
+
+        // schedule/meta
+        employmentType: employmentType ?? null,  // keep only if your schema has it
+        schedule: schedule ?? null,              // keep only if your schema has it
+        experienceText: experienceText ?? null,
+        shiftDaysJson,                           // matches your schema’s JSON field
+
+        // content
+        description: description ?? "",
+        startDate: startDate ? new Date(startDate) : null,
+
+        // relations
+        location: locationConnect,
+        photos:
+          Array.isArray(photos) && photos.length
+            ? {
+                create: photos.map((p: any, i: number) => ({
+                  url: typeof p === "string" ? p : p.url,
+                  sortOrder: i,
+                })),
+              }
+            : undefined,
       },
       include: { location: true, photos: true },
     });
 
-    return NextResponse.json({ ok: true, job: created });
-  } catch (e: any) {
+    return NextResponse.json({ ok: true, job }, { status: 201 });
+  } catch (err: any) {
+    console.error("POST /api/jobs error:", err);
     return NextResponse.json(
-      { error: "Failed to create job", detail: String(e?.message || e) },
+      { error: "Server error", detail: err?.message || String(err) },
       { status: 500 }
     );
   }

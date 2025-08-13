@@ -78,10 +78,15 @@ const DEMO_ROWS = [
 ];
 
 export default async function JobsGridPage() {
-  const dbJobs = await prisma.job.findMany({
-    orderBy: { createdAt: "desc" },
-    include: { location: true, photos: { orderBy: { sortOrder: "asc" } } },
-  });
+  let dbJobs: any[] = [];
+  try {
+    dbJobs = await prisma.job.findMany({
+      orderBy: { createdAt: "desc" },
+      include: { location: true, photos: { orderBy: { sortOrder: "asc" } } },
+    });
+  } catch (e) {
+    // swallow error and fall back to demos
+  }
 
   const jobs = dbJobs.length ? dbJobs : DEMO_ROWS;
   const demoMode = dbJobs.length === 0;
@@ -91,7 +96,6 @@ export default async function JobsGridPage() {
       {/* Header labels (sticky) */}
       <div className="hidden md:block sticky top-0 z-10 rounded-xl border border-slate-800 bg-zinc-950/80 backdrop-blur p-3">
         <div className="flex items-center gap-3">
-          {/* spacer aligns to photo column width */}
           <div className="w-[208px]" />
           <div className="grid grid-cols-7 gap-3 flex-1 text-sm text-slate-300">
             <div className="flex items-center gap-2"><Scissors className="h-5 w-5" /> Business &amp; Title</div>
@@ -115,9 +119,7 @@ export default async function JobsGridPage() {
       <div className="space-y-3">
         {jobs.map((job: any) => {
           const photo = job.photos?.[0]?.url || "/placeholder.jpg";
-          const loc = [job.location?.city ?? job.location?.city, job.location?.state ?? job.location?.state]
-            .filter(Boolean)
-            .join(", ") || [job?.location?.city, job?.location?.state].filter(Boolean).join(", ") || "—";
+          const loc = [job.location?.city, job.location?.state].filter(Boolean).join(", ") || "—";
           const schedule = job.schedule ? titleize(job.schedule) : "—";
           const comp = job.compModel ? titleize(job.compModel) : "—";
           const exp = job.experienceText || "Any";
@@ -131,41 +133,25 @@ export default async function JobsGridPage() {
             >
               {/* Desktop row */}
               <div className="hidden md:flex items-stretch gap-3 p-3">
-                {/* Photo fixed column */}
                 <div className="w-[208px] rounded-lg overflow-hidden border border-slate-800 bg-black shrink-0">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={photo} alt="" className="w-full h-28 object-cover" />
                 </div>
-
-                {/* 7-col info grid */}
                 <div className="grid grid-cols-7 gap-3 flex-1 items-center">
-                  {/* Business & Title */}
                   <div className="min-w-0">
                     <div className="font-semibold truncate text-slate-100">{job.businessName}</div>
                     <div className="text-sm text-slate-300 line-clamp-2 break-words">{job.title}</div>
                   </div>
-
-                  {/* Service */}
                   <div className="text-sm text-slate-100">{titleize(job.role)}</div>
-
-                  {/* Schedule */}
                   <div className="text-sm text-slate-100">{schedule}</div>
-
-                  {/* Experience */}
                   <div className="text-sm text-slate-100">{exp}</div>
-
-                  {/* Compensation */}
                   <div className="text-sm text-slate-100">Compensation: {comp}</div>
-
-                  {/* Payment/Wage */}
                   <div className="text-sm text-slate-100">{payText(job)}</div>
-
-                  {/* Location */}
                   <div className="text-sm text-slate-100">{loc}</div>
                 </div>
               </div>
 
-              {/* Mobile card */}
+              {/* Mobile */}
               <div className="md:hidden p-3 space-y-2">
                 <div className="rounded-lg overflow-hidden border border-slate-800 bg-black">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
