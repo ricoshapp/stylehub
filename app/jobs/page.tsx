@@ -1,4 +1,4 @@
-// app/jobs-grid/page.tsx
+// app/jobs/page.tsx
 import { prisma } from "@/lib/db";
 import Link from "next/link";
 import { MapPin, BadgeDollarSign, Briefcase, Scissors, Award, Info } from "lucide-react";
@@ -61,7 +61,7 @@ const DEMO_ROWS = [
   },
 ];
 
-export default async function JobsGridPage() {
+export default async function JobsPage() {
   let dbJobs: any[] = [];
   try {
     dbJobs = await prisma.job.findMany({
@@ -82,7 +82,7 @@ export default async function JobsGridPage() {
         <div className="flex items-center gap-3">
           {/* spacer aligns to photo column width */}
           <div className="w-[208px]" />
-          {/* ↓ reduced to 6 columns (removed Payment/Wage) */}
+          {/* 6 columns (Payment/Wage removed) */}
           <div className="grid grid-cols-6 gap-3 flex-1 text-sm text-slate-300">
             <div className="flex items-center gap-2"><Scissors className="h-5 w-5" /> Business &amp; Title</div>
             <div className="flex items-center gap-2"><Scissors className="h-5 w-5" /> Service</div>
@@ -124,7 +124,7 @@ export default async function JobsGridPage() {
                   <img src={photo} alt="" className="w-full h-28 object-cover" />
                 </div>
 
-                {/* ↓ reduced to 6 columns (removed Payment/Wage) */}
+                {/* 6-col info grid */}
                 <div className="grid grid-cols-6 gap-3 flex-1 items-center">
                   {/* Business & Title */}
                   <div className="min-w-0">
@@ -162,7 +162,6 @@ export default async function JobsGridPage() {
                   <div><span className="text-slate-400">Schedule: </span>{schedule}</div>
                   <div><span className="text-slate-400">Experience: </span>{exp}</div>
                   <div><span className="text-slate-400">Comp: </span>{comp}</div>
-                  {/* Pay line removed */}
                   <div className="col-span-2 flex items-center gap-1">
                     <MapPin className="h-4 w-4" /> {loc}
                   </div>
