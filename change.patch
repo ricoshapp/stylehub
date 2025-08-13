@@ -1,0 +1,89 @@
+diff --git a/PATCH-TEST.md b/PATCH-TEST.md
+new file mode 100644
+index 0000000..e0d2c0f
+--- /dev/null
++++ b/PATCH-TEST.md
+@@ -0,0 +1,12 @@
++# Patch Test
++
++If you can read this file in your repo, the patch workflow works. 🎉
++
++Next steps:
++- Commit this change on your feature branch.
++- Push and open a Pull Request.
++- Merge the PR, then delete the branch.
++- Switch back to main and Pull.
++
++You can delete this file later; it's only for confirming patches apply cleanly.
++
+
+diff --git a/scripts/apply-patch.ps1 b/scripts/apply-patch.ps1
+new file mode 100644
+index 0000000..5b2d5fb
+--- /dev/null
++++ b/scripts/apply-patch.ps1
+@@ -0,0 +1,33 @@
++param(
++  [string]$File = "change.patch",
++  [switch]$Check
++)
++
++Write-Host "Repo root: $((Get-Location).Path)" -ForegroundColor Cyan
++Write-Host "Patch file: $File" -ForegroundColor Cyan
++
++if (-not (Test-Path $File)) {
++  Write-Host "Patch file not found. Save it in the project root as '$File'." -ForegroundColor Red
++  exit 1
++}
++
++if ($Check) {
++  Write-Host "`nRunning dry-run check..." -ForegroundColor Yellow
++  git apply --check $File
++  exit $LASTEXITCODE
++}
++
++Write-Host "`nApplying patch..." -ForegroundColor Yellow
++git apply --index $File
++if ($LASTEXITCODE -eq 0) {
++  Write-Host "`nSuccess! Review changes in GitHub Desktop, then commit & push." -ForegroundColor Green
++  exit 0
++}
++
++Write-Host "`nPatch failed. Trying with --reject to show conflicts..." -ForegroundColor Yellow
++git apply --reject $File
++if ($LASTEXITCODE -ne 0) {
++  Write-Host "Apply failed. To abort and reset:" -ForegroundColor Red
++  Write-Host "  git reset --hard HEAD" -ForegroundColor Red
++}
++
+
+diff --git a/.github/PULL_REQUEST_TEMPLATE.md b/.github/PULL_REQUEST_TEMPLATE.md
+new file mode 100644
+index 0000000..2a3b8a1
+--- /dev/null
++++ b/.github/PULL_REQUEST_TEMPLATE.md
+@@ -0,0 +1,23 @@
++## What & Why
++<!-- Brief summary of the change and the problem it solves -->
++
++## Files touched
++- app/...
++- components/...
++- lib/...
++- prisma/...
++
++## DB
++- Migration? yes/no
++- Seed changed? yes/no
++
++## How to test
++1. Steps to reproduce:
++2. Expected result:
++3. Visual check:
++
++## Risks
++- User-facing?
++- Requires env changes?
++
++## Screenshots
++<!-- before/after if visual -->
