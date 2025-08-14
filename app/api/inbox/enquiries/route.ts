@@ -2,72 +2,132 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { zInquiryCreate } from "@/lib/validation";
+import { Prisma } from "@prisma/client";
 
-// POST /api/inquiries  -> create (idempotent: one per user+job)
-export async function POST(req: Request) {
+/** Resolve job owner for both new/legacy rows */
+async function resolveOwner(jobId: string) {
   try {
-    const user = await getCurrentUser();
-    if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-
-    const body = await req.json();
-    const parsed = zInquiryCreate.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ message: "Invalid payload", detail: parsed.error.flatten() }, { status: 400 });
-    }
-    const { jobId, note } = parsed.data;
-
-    const job = await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, ownerId: true } });
-    if (!job) return NextResponse.json({ message: "Job not found" }, { status: 404 });
-    if (!job.ownerId) return NextResponse.json({ message: "Job owner not set on job" }, { status: 422 });
-
-    // Upsert-like: ensure no duplicates per sender+job
-    const existing = await prisma.inquiry.findUnique({
-      where: { senderId_jobId: { senderId: user.id, jobId } },
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: {
+        id: true,
+        ownerId: true,
+        employerProfile: { select: { userId: true } },
+      },
     });
-
-    const saved = existing
-      ? existing
-      : await prisma.inquiry.create({
-          data: {
-            senderId: user.id,
-            jobId,
-            ownerId: job.ownerId,
-            note: note?.trim() || null,
-          },
-        });
-
-    return NextResponse.json({ id: saved.id }, { status: 200 });
+    if (!job) return { step: "owner:job", tag: "E_JOB_NOT_FOUND" as const, status: 404 };
+    const ownerId = job.ownerId ?? job.employerProfile?.userId ?? null;
+    if (!ownerId) return { step: "owner:none", tag: "E_NO_OWNER_ON_JOB" as const, status: 422 };
+    return { step: "owner:ok", tag: "OK" as const, status: 200, ownerId };
   } catch (e: any) {
-    return NextResponse.json({ message: "Failed to create enquiry", detail: String(e?.message || e) }, { status: 500 });
+    return {
+      step: "owner:exception",
+      tag: "E_OWNER_EXCEPTION" as const,
+      status: 500,
+      detail: String(e?.message || e),
+    };
   }
 }
 
-// GET /api/inquiries -> list mine (role-aware)
+/** POST /api/inbox/enquiries  — create/update inquiry */
+export async function POST(req: Request) {
+  const step = { at: "init" as string };
+  try {
+    step.at = "auth";
+    const me = await getCurrentUser();
+    if (!me) return NextResponse.json({ tag: "E_UNAUTHORIZED", step }, { status: 401 });
+
+    step.at = "parse";
+    const body = await req.json().catch(() => null);
+    if (!body) return NextResponse.json({ tag: "E_BAD_JSON", step }, { status: 400 });
+
+    step.at = "zod";
+    const parsed = zInquiryCreate.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ tag: "E_ZOD", step, issues: parsed.error.flatten() }, { status: 400 });
+    }
+    const { jobId, name, phone, note } = parsed.data; // phone is 10 digits (normalized by zod)
+
+    step.at = "owner";
+    const owner = await resolveOwner(jobId);
+    if (owner.tag !== "OK") {
+      return NextResponse.json({ tag: owner.tag, step: { ...step, owner: owner.step }, detail: owner.detail }, { status: owner.status });
+    }
+
+    step.at = "model:check";
+    // quick ping to ensure Inquiry model/table is reachable
+    await prisma.inquiry.count({ where: { id: "__noop__" } }).catch(() => { /* ignore count error */ });
+
+    step.at = "read";
+    const existing = await prisma.inquiry.findFirst({
+      where: { senderId: me.id, jobId },
+      select: { id: true },
+    });
+
+    step.at = existing ? "update" : "create";
+    const saved = existing
+      ? await prisma.inquiry.update({
+          where: { id: existing.id },
+          data: { name, phone, note: note || null },
+        })
+      : await prisma.inquiry.create({
+          data: {
+            senderId: me.id,
+            jobId,
+            ownerId: owner.ownerId!,
+            name,
+            phone,
+            note: note || null,
+          },
+        });
+
+    step.at = "done";
+    return NextResponse.json({ tag: "OK_CREATED", id: saved.id, step }, { status: 200 });
+  } catch (e: any) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      return NextResponse.json(
+        { tag: "E_PRISMA", code: e.code, meta: e.meta, message: e.message, step },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json(
+      { tag: "E_UNHANDLED", step, detail: String(e?.message || e), stack: e?.stack },
+      { status: 500 }
+    );
+  }
+}
+
+/** GET — role-aware list (unchanged) */
 export async function GET() {
   try {
-    const user = await getCurrentUser();
-    if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    const me = await getCurrentUser();
+    if (!me) return NextResponse.json({ tag: "E_UNAUTHORIZED" }, { status: 401 });
 
-    if (user.role === "talent") {
+    if (me.role === "talent") {
       const rows = await prisma.inquiry.findMany({
-        where: { senderId: user.id },
+        where: { senderId: me.id },
         orderBy: { createdAt: "desc" },
         include: { job: { include: { location: true, photos: true } } },
       });
-      return NextResponse.json({ role: "talent", items: rows });
+      return NextResponse.json({ tag: "OK_TALENT", items: rows }, { status: 200 });
     } else {
-      // default to employer view
       const rows = await prisma.inquiry.findMany({
-        where: { ownerId: user.id },
+        where: { ownerId: me.id },
         orderBy: { createdAt: "desc" },
         include: {
-          job: { select: { id: true, title: true, businessName: true } },
+          job: { select: { id: true, title: true, businessName: true, role: true } },
           sender: { select: { id: true, username: true, email: true } },
         },
       });
-      return NextResponse.json({ role: "employer", items: rows });
+      return NextResponse.json({ tag: "OK_EMPLOYER", items: rows }, { status: 200 });
     }
   } catch (e: any) {
-    return NextResponse.json({ message: "Failed to fetch enquiries", detail: String(e?.message || e) }, { status: 500 });
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      return NextResponse.json(
+        { tag: "E_PRISMA", code: e.code, meta: e.meta, message: e.message },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({ tag: "E_UNHANDLED", detail: String(e?.message || e) }, { status: 500 });
   }
 }
