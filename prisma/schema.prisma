@@ -114,6 +114,9 @@ model Job {
   location           Location?        @relation(fields: [locationId], references: [id])
   photos             JobPhoto[]
   inquiries          Inquiry[]
+  status             JobStatus        @default(ACTIVE)
+  viewsCount         Int              @default(0)
+  inquiriesCount     Int              @default(0)
 
   @@index([role])
   @@index([status])
@@ -267,6 +270,7 @@ model Inquiry {
 
   @@index([senderId])
   @@index([jobId])
+  @@unique([senderId, jobId])
 }
 
 enum UserRole {
@@ -333,4 +337,11 @@ enum MessageVia {
   in_app
   email
   sms
+}
+
+enum JobStatus {
+  ACTIVE
+  PAUSED
+  CLOSED
+
 }

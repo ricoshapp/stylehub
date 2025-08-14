@@ -3,6 +3,7 @@ import "./globals.css";
 import { Inter } from "next/font/google";
 import Link from "next/link";
 import AuthLinks from "@/components/AuthLinks";
+import EmployerManageLink from "@/components/EmployerManageLink";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -31,6 +32,7 @@ export default function RootLayout({
               <Link href="/post" className="hover:text-white/90">Post a Job</Link>
               <Link href="/inbox" className="hover:text-white/90">Inbox</Link>
               <Link href="/profile" className="hover:text-white/90">Profile</Link>
+              <Link href="/EmployerManageLink" className="hover:text-white/90">Manage</Link>
               <AuthLinks />
             </div>
           </nav>
