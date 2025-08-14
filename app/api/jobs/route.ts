@@ -1,117 +1,142 @@
-// app/api/jobs/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { zJobCreate } from "@/lib/validation";
 
-type ShiftDaysArray = [boolean, boolean, boolean, boolean, boolean, boolean, boolean];
+/** Ensure the current user has an EmployerProfile; create minimal one if missing. */
+async function ensureEmployerProfile(ownerId: string, shopName: string, locationId?: string) {
+  const existing = await prisma.employerProfile.findFirst({
+    where: { userId: ownerId },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
 
-function toShiftDaysJson(arr?: boolean[]): Record<string, boolean> | null {
-  if (!Array.isArray(arr) || arr.length !== 7) return null;
-  const [sun, mon, tue, wed, thu, fri, sat] = arr.map(Boolean) as ShiftDaysArray;
-  return { sun, mon, tue, wed, thu, fri, sat };
+  const created = await prisma.employerProfile.create({
+    data: {
+      user: { connect: { id: ownerId } },
+      shopName: shopName || "My Shop",
+      ...(locationId ? { location: { connect: { id: locationId } } } : {}),
+    },
+    select: { id: true },
+  });
+  return created.id;
+}
+
+/** Normalize shift days into a 7-bool array [sun..sat]. */
+function toShiftDaysArray(input: any): boolean[] {
+  // already an array?
+  if (Array.isArray(input) && input.length === 7) {
+    return input.map(Boolean);
+  }
+  // object shape { sun..sat }
+  if (
+    input &&
+    typeof input === "object" &&
+    ["sun", "mon", "tue", "wed", "thu", "fri", "sat"].every((k) => typeof input[k] === "boolean")
+  ) {
+    const { sun, mon, tue, wed, thu, fri, sat } = input as Record<string, boolean>;
+    return [sun, mon, tue, wed, thu, fri, sat];
+  }
+  // default: all false
+  return [false, false, false, false, false, false, false];
 }
 
 export async function POST(req: Request) {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json({ error: "Please sign in to post a job." }, { status: 401 });
-    }
+    const me = await getCurrentUser();
+    if (!me) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const {
-      businessName,
-      title,
-      role,
-      compModel,
-      payMin,
-      payMax,
-      payUnit,
-      payVisible,
-      employmentType,
-      schedule,
-      experienceText,
-      shiftDays, // [Sun..Sat] booleans from form
-      description,
-      startDate,
-      location,
-      photos,
-    } = body || {};
-
-    if (!businessName || !title) {
+    const parsed = zJobCreate.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Business name and short title are required." },
+        { message: "Validation failed", issues: parsed.error.flatten() },
         { status: 400 }
       );
     }
+    const data = parsed.data;
 
-    // connect existing Location by id or create a new one
-    let locationConnect: { connect: { id: string } } | undefined;
-    if (location?.id) {
-      locationConnect = { connect: { id: String(location.id) } };
-    } else {
+    // Location: connect by id or create from inline
+    let locationId: string | undefined;
+    if ((data as any).locationId) {
+      locationId = (data as any).locationId as string;
+    } else if (data.location && (data.location as any).id) {
+      locationId = (data.location as any).id as string;
+    } else if (data.location) {
       const loc = await prisma.location.create({
         data: {
-          lat: Number(location?.lat ?? 32.7157),
-          lng: Number(location?.lng ?? -117.1611),
-          addressLine1: location?.addressLine1 ?? null,
-          city: location?.city ?? null,
-          county: location?.county ?? "San Diego County",
-          state: location?.state ?? "CA",
-          postalCode: location?.postalCode ?? null,
-          country: location?.country ?? "US",
+          lat: data.location.lat,
+          lng: data.location.lng,
+          addressLine1: (data.location as any).addressLine1 ?? null,
+          addressLine2: (data.location as any).addressLine2 ?? null,
+          city: data.location.city ?? null,
+          state: (data.location.state || "CA") as string,
+          postalCode: data.location.postalCode ?? null,
+          country: (data.location.country || "US") as string,
+          // If your schema has county, you can include it:
+          // county: (data.location as any).county ?? null,
         },
+        select: { id: true },
       });
-      locationConnect = { connect: { id: loc.id } };
+      locationId = loc.id;
     }
 
-    const shiftDaysJson = toShiftDaysJson(shiftDays);
+    // Ensure employer profile exists for this user
+    const employerProfileId = await ensureEmployerProfile(me.id, data.businessName, locationId);
+
+    // Normalize shift days to boolean[]
+    const shiftDaysArr = toShiftDaysArray((data as any).shiftDays ?? (data as any).shiftDaysJson);
+
+    // Optional photos
+    const photosCreate =
+      Array.isArray(data.photos) && data.photos.length
+        ? { create: data.photos.map((url) => ({ url })) }
+        : undefined;
 
     const job = await prisma.job.create({
       data: {
-        owner: { connect: { id: user.id } },
+        // NOTE: no `owner` field here (your schema doesn’t have it)
+        employerProfile: { connect: { id: employerProfileId } },
 
-        businessName,
-        title,
-        role,
-        compModel,
-
-        // compensation
-        payMin: payMin ?? null,
-        payMax: payMax ?? null,
-        payUnit: payUnit ?? "$/hr",
-        payVisible: !!payVisible,
-
-        // schedule/meta
-        employmentType: employmentType ?? null,  // keep only if your schema has it
-        schedule: schedule ?? null,              // keep only if your schema has it
-        experienceText: experienceText ?? null,
-        shiftDaysJson,                           // matches your schema’s JSON field
-
-        // content
-        description: description ?? "",
-        startDate: startDate ? new Date(startDate) : null,
-
-        // relations
-        location: locationConnect,
-        photos:
-          Array.isArray(photos) && photos.length
-            ? {
-                create: photos.map((p: any, i: number) => ({
-                  url: typeof p === "string" ? p : p.url,
-                  sortOrder: i,
-                })),
-              }
-            : undefined,
+        businessName: data.businessName?.trim() || null,
+        title: data.title,
+        role: data.role,
+        compModel: data.compModel,
+        payMin: data.payMin ?? null,
+        payMax: data.payMax ?? null,
+        payUnit: data.payUnit,
+        payVisible: data.payVisible,
+        employmentType: data.employmentType ?? null,
+        schedule: data.schedule ?? null,
+        experienceText: data.experienceText ?? null,
+        shiftDays: shiftDaysArr, // <-- use array field, not shiftDaysJson
+        description: data.description ?? "",
+        startDate: (data.startDate as any) ?? null,
+        ...(locationId ? { location: { connect: { id: locationId } } } : {}),
+        photos: photosCreate,
       },
       include: { location: true, photos: true },
     });
 
-    return NextResponse.json({ ok: true, job }, { status: 201 });
-  } catch (err: any) {
-    console.error("POST /api/jobs error:", err);
+    return NextResponse.json({ message: "OK", job }, { status: 200 });
+  } catch (e: any) {
     return NextResponse.json(
-      { error: "Server error", detail: err?.message || String(err) },
+      { message: "Failed to create job", detail: String(e?.message || e) },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET() {
+  try {
+    const jobs = await prisma.job.findMany({
+      orderBy: { createdAt: "desc" },
+      include: { location: true, photos: true },
+    });
+    return NextResponse.json({ items: jobs }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json(
+      { message: "Failed to list jobs", detail: String(e?.message || e) },
       { status: 500 }
     );
   }
