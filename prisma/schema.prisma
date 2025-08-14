@@ -26,6 +26,7 @@ model User {
   Session          Session[]
   talentProfiles   TalentProfile?
   role             UserRole          @default(talent)
+  inquiriesSent    Inquiry[]         @relation("InquirySender")
 }
 
 model EmployerProfile {
@@ -112,6 +113,7 @@ model Job {
   employerProfile    EmployerProfile  @relation(fields: [employerProfileId], references: [id], onDelete: Cascade)
   location           Location?        @relation(fields: [locationId], references: [id])
   photos             JobPhoto[]
+  inquiries          Inquiry[]
 
   @@index([role])
   @@index([status])
@@ -244,6 +246,27 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model Inquiry {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // who sent the inquiry (talent)
+  senderId String
+  sender   User   @relation("InquirySender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  // which job they inquired about
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  // payload (what talent typed)
+  name  String?
+  phone String?
+  note  String?
+
+  @@index([senderId])
+  @@index([jobId])
 }
 
 enum UserRole {
