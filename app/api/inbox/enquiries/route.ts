@@ -4,15 +4,10 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { zInquiryCreate } from "@/lib/validation";
 
-// Helper to support Inquiry or Enquiry model names
 function getInquiryModelRW() {
   const anyPrisma = prisma as any;
   return (anyPrisma.inquiry ?? anyPrisma.enquiry) as
-    | {
-        findFirst: Function;
-        count: Function;
-        create: Function;
-      }
+    | { findFirst: Function; create: Function }
     | undefined;
 }
 
@@ -40,7 +35,7 @@ export async function POST(req: Request) {
 
     const { jobId, name, phone, note } = parsed.data;
 
-    // Duplicate check (friendly, before we rely on DB constraint)
+    // Dupe check (friendly)
     const existing = await (Inquiry as any).findFirst({
       where: { senderId: me.id, jobId },
       select: { id: true },
@@ -52,6 +47,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // Create inquiry
     const created = await (Inquiry as any).create({
       data: {
         senderId: me.id,
@@ -60,12 +56,21 @@ export async function POST(req: Request) {
         phone: phone ?? null,
         note: note ?? null,
       },
-      select: { id: true },
+      select: { id: true, jobId: true },
     });
+
+    // Bump inquiriesCount (best-effort)
+    try {
+      await prisma.job.update({
+        where: { id: created.jobId },
+        data: { inquiriesCount: { increment: 1 } },
+      });
+    } catch (_) {
+      // ignore; don’t block success
+    }
 
     return NextResponse.json({ message: "OK", id: created.id }, { status: 200 });
   } catch (e: any) {
-    // Catch unique constraint from DB as well (P2002)
     if (e?.code === "P2002") {
       return NextResponse.json(
         { message: "You already inquired on this listing." },
