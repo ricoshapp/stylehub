@@ -1,159 +1,139 @@
-// components/InquirySheet.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
-export default function InquirySheet({ jobId, jobTitle }: { jobId: string; jobTitle?: string }) {
-  const [open, setOpen] = useState(false);
+type Props = {
+  jobId: string;
+  open: boolean;
+  onClose: () => void;
+};
+
+export default function InquirySheet({ jobId, open, onClose }: Props) {
   const [name, setName] = useState("");
-  const [phoneRaw, setPhoneRaw] = useState(""); // digits only
+  const [phone, setPhone] = useState(""); // formatted as (XXX) XXX-XXXX
   const [note, setNote] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
 
-  const phoneFmt = formatPhone(phoneRaw);
+  const canSubmit = useMemo(() => {
+    const digits = phone.replace(/\D/g, "");
+    return name.trim().length > 0 && digits.length === 10;
+  }, [name, phone]);
 
-  function onPhoneChange(v: string) {
-    const digits = v.replace(/\D/g, "").slice(0, 10);
-    setPhoneRaw(digits);
+  function formatPhone(next: string) {
+    const digits = next.replace(/\D/g, "").slice(0, 10);
+    const p1 = digits.slice(0, 3);
+    const p2 = digits.slice(3, 6);
+    const p3 = digits.slice(6, 10);
+    if (digits.length <= 3) return p1;
+    if (digits.length <= 6) return `(${p1}) ${p2}`;
+    return `(${p1}) ${p2}-${p3}`;
   }
 
   async function submit() {
-    setErr(null);
-    setMsg(null);
-    if (!name.trim() || phoneRaw.length !== 10) {
-      setErr("Enter your name and a 10-digit phone.");
-      return;
-    }
-    setSubmitting(true);
+    setError(null);
+    setOk(null);
+    setBusy(true);
     try {
-      const res = await fetch("/api/inbox/enquiries", {
+      const resp = await fetch("/api/inbox/enquiries", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           jobId,
-          name: name.trim(),
-          phone: phoneRaw,
-          note: note.trim() || null,
+          name: name.trim().slice(0, 25),
+          phone: phone.replace(/\D/g, ""),
+          note: note.trim().slice(0, 200),
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.message || "Failed to send");
-      setMsg("Inquiry sent! We’ll notify the shop.");
-      setName("");
-      setPhoneRaw("");
-      setNote("");
-      // keep sheet open so user sees confirmation
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        setError(data?.message || "Failed to send inquiry.");
+      } else {
+        setOk("Inquiry sent!");
+        setTimeout(onClose, 800);
+      }
     } catch (e: any) {
-      setErr(e?.message ?? "Failed to send");
+      setError("Network error. Please try again.");
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   }
 
+  if (!open) return null;
+
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500"
-      >
-        Inquire
-      </button>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 sm:p-6">
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+        <div className="mb-3">
+          <h2 className="text-xl font-semibold">Send an Inquiry</h2>
+          <p className="text-sm text-gray-600">Share your info with the shop owner.</p>
+        </div>
 
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-          {/* backdrop */}
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setOpen(false)}
-            aria-hidden
-          />
-          {/* sheet */}
-          <div className="relative w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-slate-900 border border-white/10 p-5 m-0 sm:m-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-semibold text-white">Send an inquiry</h3>
-                {jobTitle ? (
-                  <p className="text-slate-400 text-sm mt-0.5 break-words">{jobTitle}</p>
-                ) : null}
-              </div>
-              <button
-                onClick={() => setOpen(false)}
-                className="text-slate-400 hover:text-white"
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value.slice(0, 25))}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+              placeholder="Your name"
+              maxLength={25}
+            />
+          </div>
 
-            <div className="mt-4 space-y-4">
-              <div>
-                <label className="block text-sm text-slate-300 mb-1">Name</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value.slice(0, 25))}
-                  maxLength={25}
-                  className="w-full rounded-lg bg-slate-800 border border-white/10 px-3 py-2 text-white outline-none focus:border-emerald-500"
-                  placeholder="Your name"
-                />
-              </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Phone</label>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(formatPhone(e.target.value))}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+              placeholder="(555) 123-4567"
+              inputMode="numeric"
+              maxLength={14} // (XXX) XXX-XXXX
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Enter 10 digits. We’ll share this with the shop.
+            </p>
+          </div>
 
-              <div>
-                <label className="block text-sm text-slate-300 mb-1">Phone</label>
-                <input
-                  inputMode="numeric"
-                  value={phoneFmt}
-                  onChange={(e) => onPhoneChange(e.target.value)}
-                  className="w-full rounded-lg bg-slate-800 border border-white/10 px-3 py-2 text-white outline-none focus:border-emerald-500"
-                  placeholder="(555) 123-4567"
-                />
-                <p className="text-xs text-slate-400 mt-1">Digits only; formatted as you type.</p>
-              </div>
-
-              <div>
-                <label className="block text-sm text-slate-300 mb-1">
-                  Message <span className="text-slate-400">(optional, 200 chars)</span>
-                </label>
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value.slice(0, 200))}
-                  maxLength={200}
-                  className="w-full rounded-lg bg-slate-800 border border-white/10 px-3 py-2 text-white outline-none focus:border-emerald-500 resize-none"
-                  rows={4}
-                  placeholder="Short note to the shop…"
-                />
-              </div>
-
-              {err ? <p className="text-red-400 text-sm">{err}</p> : null}
-              {msg ? <p className="text-emerald-400 text-sm">{msg}</p> : null}
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  onClick={() => setOpen(false)}
-                  className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white hover:bg-white/5"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={submit}
-                  disabled={submitting || !name.trim() || phoneRaw.length !== 10}
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {submitting ? "Sending…" : "Send Inquiry"}
-                </button>
-              </div>
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Short message <span className="text-gray-400">(optional, 200 chars)</span>
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value.slice(0, 200))}
+              className="mt-1 w-full resize-none rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+              rows={4}
+              maxLength={200}
+              placeholder="e.g., 3 yrs experience, available Tue–Sat…"
+            />
           </div>
         </div>
-      )}
-    </>
-  );
-}
 
-function formatPhone(digits: string) {
-  const d = digits.replace(/\D/g, "").slice(0, 10);
-  if (d.length <= 3) return d;
-  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
-  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+        {ok && <p className="mt-3 text-sm text-green-600">{ok}</p>}
+
+        <div className="mt-5 flex items-center justify-end gap-3">
+          <button
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+            onClick={onClose}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+          <button
+            className={`rounded-md px-3 py-2 text-sm text-white ${
+              canSubmit ? "bg-black hover:bg-gray-800" : "bg-gray-400"
+            }`}
+            onClick={submit}
+            disabled={!canSubmit || busy}
+          >
+            {busy ? "Sending…" : "Send Inquiry"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

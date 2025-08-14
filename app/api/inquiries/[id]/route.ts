@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 
-function tryGetInquiryModelRW() {
+function getInquiryModelRW() {
   const anyPrisma = prisma as any;
   return (anyPrisma.inquiry ?? anyPrisma.enquiry) as
     | {
@@ -21,7 +21,7 @@ export async function DELETE(
     const me = await getCurrentUser();
     if (!me) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
-    const Inquiry = tryGetInquiryModelRW();
+    const Inquiry = getInquiryModelRW();
     if (!Inquiry) {
       return NextResponse.json(
         { message: "Inquiries are not enabled on this environment." },
