@@ -20,7 +20,7 @@ export const zLocation = z.object({
 /* ---------- Job Create ---------- */
 export const zJobCreate = z.object({
   businessName: z.string().min(1, "Business name is required"),
-  title: z.string().min(1, "Short title is required").max(120, "Max 120 characters"),
+  title: z.string().min(1).max(60),
   role: z.enum([
     "barber",
     "cosmetologist",
@@ -44,7 +44,7 @@ export const zJobCreate = z.object({
   // If you support "any" in UI, include it here:
   schedule: z.enum(["full_time", "part_time", "any"]).nullable().optional(),
 
-  experienceText: z.string().max(60).nullable().optional(),
+  experienceText: z.string().max(20).optional(),
 
   // Either old array shape or new json shape; both optional
   shiftDays: z.array(z.boolean()).length(7).optional(),
