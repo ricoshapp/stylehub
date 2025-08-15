@@ -1,6 +1,5 @@
+/* app/globals.css */
 @import "tailwindcss";
-
-/* ...your CSS tokens/utilities and custom styles below... */
 
 /* Base */
 :root { color-scheme: dark; }
@@ -10,7 +9,10 @@ body { color: #e5e7eb; background: transparent; }
 
 /* Fixed, seam-free background */
 html::before{
-  content:"";position:fixed;inset:0;z-index:-1;
+  content:"";
+  position:fixed;
+  inset:0;
+  z-index:-1;
   background-image:
     radial-gradient(70% 50% at 20% -10%, rgba(59,130,246,.10) 0%, rgba(59,130,246,0) 60%),
     radial-gradient(60% 40% at 80% 110%, rgba(168,85,247,.08) 0%, rgba(168,85,247,0) 60%),
@@ -18,25 +20,26 @@ html::before{
   background-repeat:no-repeat;
   background-size:120% 120%,120% 120%,100% 100%;
   background-position:center top,center bottom,center;
-  will-change:transform;transform:translateZ(0);
+  will-change:transform;
+  transform:translateZ(0);
 }
 
 /* Inputs */
 .input{
-  @apply w-full rounded-xl border border-slate-800 bg-zinc-950/60 px-3 py-2
-         text-slate-200 placeholder-slate-500 shadow-inner
-         focus:outline-none focus:ring-2 focus:ring-indigo-500/30;
+  @apply w-full rounded-xl border border-slate-800 bg-zinc-950/60 px-3 py-2 text-slate-200 placeholder-slate-500 shadow-inner focus:outline-none focus:ring-2 focus:ring-indigo-500/30;
   appearance:textfield;
 }
 
 /* Number spinners off */
 input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+input[type="number"]::-webkit-inner-spin-button{
+  -webkit-appearance:none;
+  margin:0;
+}
 input[type="number"]{ -moz-appearance:textfield; }
 
 /* Pills & cards */
-.pill{ @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs
-              border border-slate-800 bg-zinc-950/60 text-slate-200; }
+.pill{ @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs border border-slate-800 bg-zinc-950/60 text-slate-200; }
 .card{ @apply rounded-2xl border border-slate-800 bg-zinc-950/50; }
 
 /* Text wrapping helpers */
@@ -51,3 +54,11 @@ input[type="number"]{ -moz-appearance:textfield; }
    Make maps always sit below the sticky header (z-50). */
 .leaflet-container{ position:relative; z-index:0 !important; }
 .leaflet-top, .leaflet-bottom{ z-index:10 !important; } /* controls, popups, etc. */
+
+/* ---------- Select visibility fix ----------
+   Ensure native <select> menus/options are legible on dark themes (Win/Chrome, etc.). */
+select,
+select option{
+  color:#e5e7eb;            /* slate-200 */
+  background-color:#0b0f19; /* near-neutral-900 */
+}
