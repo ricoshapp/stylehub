@@ -17,7 +17,7 @@ export default async function ManageJobsPage() {
     );
   }
 
-  // Ensure this user actually owns an employer profile
+  // Ensure the user has an employer profile
   const employer = await prisma.employerProfile.findFirst({
     where: { userId: me.id },
     select: { id: true },
@@ -35,7 +35,7 @@ export default async function ManageJobsPage() {
             href="/post"
             className="inline-block rounded-md bg-white px-3 py-2 text-sm font-medium text-black"
           >
-            Post a Job
+            Create your first listing
           </Link>
         </div>
       </div>
@@ -102,7 +102,9 @@ export default async function ManageJobsPage() {
                         </div>
                         <div className="text-slate-300">{j.title}</div>
                         <div className="text-xs text-slate-400">
-                          {[j.location?.city, j.location?.state].filter(Boolean).join(", ")}
+                          {[j.location?.city, j.location?.state]
+                            .filter(Boolean)
+                            .join(", ")}
                         </div>
                       </div>
                     </div>
@@ -131,7 +133,8 @@ export default async function ManageJobsPage() {
                       >
                         View
                       </Link>
-                      <ManageActions id={j.id} status={j.status as any} />
+                      {/* Edit can point to /post?edit=<id> later */}
+                      <ManageActions id={j.id} status={j.status as "ACTIVE" | "PAUSED" | "CLOSED"} />
                     </div>
                   </td>
                 </tr>
