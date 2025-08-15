@@ -1,3 +1,4 @@
+// app/api/jobs/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return NextResponse.json(
         { message: "Validation failed", issues: parsed.error.flatten() },
-        { status: 400 }
+        { status: 400 },
       );
     }
     const data = parsed.data;
@@ -73,8 +74,8 @@ export async function POST(req: Request) {
           state: (data.location.state || "CA") as string,
           postalCode: data.location.postalCode ?? null,
           country: (data.location.country || "US") as string,
-          // If your schema has county, you can include it:
-          // county: (data.location as any).county ?? null,
+          // your schema has county String? — include when provided (often "San Diego County")
+          county: (data.location as any).county ?? null,
         },
         select: { id: true },
       });
@@ -87,31 +88,39 @@ export async function POST(req: Request) {
     // Normalize shift days to boolean[]
     const shiftDaysArr = toShiftDaysArray((data as any).shiftDays ?? (data as any).shiftDaysJson);
 
-    // Optional photos
+    // Optional photos (accept data URLs or http urls)
     const photosCreate =
       Array.isArray(data.photos) && data.photos.length
-        ? { create: data.photos.map((url) => ({ url })) }
+        ? {
+            create: data.photos
+              .filter((u) => typeof u === "string" && u.length <= 2_000_000) // basic guard
+              .map((url) => ({ url })),
+          }
         : undefined;
 
     const job = await prisma.job.create({
       data: {
-        // NOTE: no `owner` field here (your schema doesn’t have it)
+        // NOTE: no `owner` field here (schema doesn’t have it)
         employerProfile: { connect: { id: employerProfileId } },
 
         businessName: data.businessName?.trim() || null,
         title: data.title,
         role: data.role,
         compModel: data.compModel,
+
         payMin: data.payMin ?? null,
         payMax: data.payMax ?? null,
         payUnit: data.payUnit,
         payVisible: data.payVisible,
+
         employmentType: data.employmentType ?? null,
         schedule: data.schedule ?? null,
         experienceText: data.experienceText ?? null,
-        shiftDays: shiftDaysArr, // <-- use array field, not shiftDaysJson
+
+        shiftDays: shiftDaysArr, // use the Boolean[] column
         description: data.description ?? "",
         startDate: (data.startDate as any) ?? null,
+
         ...(locationId ? { location: { connect: { id: locationId } } } : {}),
         photos: photosCreate,
       },
@@ -122,7 +131,7 @@ export async function POST(req: Request) {
   } catch (e: any) {
     return NextResponse.json(
       { message: "Failed to create job", detail: String(e?.message || e) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -137,7 +146,7 @@ export async function GET() {
   } catch (e: any) {
     return NextResponse.json(
       { message: "Failed to list jobs", detail: String(e?.message || e) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
