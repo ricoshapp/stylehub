@@ -3,33 +3,59 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 
-export async function DELETE(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
-  const me = await getCurrentUser();
-  if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+type Params = { params: { id: string } };
 
-  const { id } = params;
-
-  // Allow either party (sender or owner/employer) to delete the inquiry.
-  // Fallback to job->employerProfile->userId in case ownerId wasn’t set in older data.
-  const canDelete = await prisma.inquiry.findFirst({
-    where: {
-      id,
-      OR: [
-        { senderId: me.id },
-        { ownerId: me.id },
-        { job: { employerProfile: { userId: me.id } } },
-      ],
-    },
-    select: { id: true },
-  });
-
-  if (!canDelete) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+// Helper to tolerate Inquiry vs Enquiry model names
+function getInquiryModel() {
+  const anyPrisma = prisma as any;
+  const model = anyPrisma.inquiry ?? anyPrisma.enquiry;
+  if (!model) {
+    throw new Error("Inquiry model missing from Prisma client.");
   }
+  return model as typeof prisma.inquiry;
+}
 
-  await prisma.inquiry.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+export async function DELETE(_req: Request, { params }: Params) {
+  try {
+    const me = await getCurrentUser();
+    if (!me) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const Inquiry = getInquiryModel();
+    const id = params.id;
+
+    // Load the inquiry with sender + job owner (via employerProfile.userId)
+    const row = await Inquiry.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        senderId: true,
+        job: {
+          select: {
+            employerProfile: { select: { userId: true } },
+          },
+        },
+      },
+    });
+
+    if (!row) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const isSender = row.senderId === me.id;
+    const isOwner = row.job?.employerProfile?.userId === me.id;
+
+    if (!isSender && !isOwner) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    await Inquiry.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err?.message ?? "Failed to delete inquiry" },
+      { status: 500 }
+    );
+  }
 }
