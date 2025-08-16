@@ -1,132 +1,134 @@
 // components/InquiryListClient.tsx
 "use client";
 
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { useState, useCallback } from "react";
 
 type Item = {
   id: string;
-  createdAt?: string;
-  name?: string;
-  phone?: string;
-  note?: string | null;
-  job: {
-    id: string;
-    title: string;
-    business: string;
-    thumb: string;
-    city: string;
-  };
+  createdAt: string; // ISO
+  name: string;
+  phone: string;
+  note: string;
+  jobId: string;
+  jobTitle: string;
+  businessName: string;
+  cityState: string;
 };
 
 export default function InquiryListClient({
-  mode,
+  roleView,
   items,
 }: {
-  mode: "talent" | "employer";
+  roleView: "talent" | "employer";
   items: Item[];
 }) {
-  const [list, setList] = useState(items || []);
-  const [removing, setRemoving] = useState<string | null>(null);
+  const [local, setLocal] = useState(items);
+  const [pending, startTransition] = useTransition();
 
-  const onRemove = useCallback(async (id: string) => {
-    if (!confirm("Remove this inquiry? This removes it for both sides.")) return;
-    setRemoving(id);
-    try {
-      const resp = await fetch(`/api/inquiries/${id}`, { method: "DELETE" });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        alert(data?.message || "Failed to remove inquiry.");
-      } else {
-        setList((prev) => prev.filter((it) => it.id !== id));
+  const isEmpty = local.length === 0;
+
+  const remove = (id: string) => {
+    // optimistic
+    setLocal((prev) => prev.filter((x) => x.id !== id));
+    startTransition(async () => {
+      const res = await fetch(`/api/inquiries/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        // revert if failed
+        setLocal(items);
+        alert("Failed to remove inquiry. Please try again.");
       }
-    } finally {
-      setRemoving(null);
-    }
-  }, []);
+    });
+  };
 
-  // Empty states
-  if (!list.length) {
-    if (mode === "employer") {
-      // Employer: no CTA, simple message only
-      return (
-        <div className="mt-6 rounded-lg border border-white/10 p-6 text-slate-200">
-          <p className="text-sm">nothing yet.</p>
-        </div>
-      );
-    }
-    // Talent: keep CTA to browse jobs
-    return (
-      <div className="mt-6 rounded-lg border border-white/10 p-6 text-slate-200">
-        <p className="text-sm">No inquiries yet. Find a listing and tap Inquire.</p>
-        <div className="mt-3">
-          <Link
-            href="/jobs"
-            className="inline-block rounded-md bg-white px-3 py-2 text-sm font-medium text-black"
-          >
-            Browse Jobs
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  const now = Date.now();
+  const withFlags = useMemo(
+    () =>
+      local.map((x) => {
+        const ageMs = Math.max(
+          0,
+          now - (x.createdAt ? new Date(x.createdAt).getTime() : now)
+        );
+        const isNew = ageMs < 48 * 60 * 60 * 1000; // 48h
+        return { ...x, isNew };
+      }),
+    [local, now]
+  );
 
   return (
-    <ul className="mt-5 space-y-3">
-      {list.map((it) => (
-        <li
-          key={it.id}
-          className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3"
-        >
-          <img
-            src={it.job.thumb || "/placeholder.jpg"}
-            alt=""
-            className="h-12 w-12 flex-none rounded-md object-cover"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 text-sm text-slate-200">
-              <Link
-                href={`/jobs/${it.job.id}`}
-                className="font-semibold underline-offset-2 hover:underline"
-              >
-                {it.job.business}
-              </Link>
-              <span className="text-slate-400">·</span>
-              <span className="text-slate-300">{it.job.title}</span>
-              <span className="text-slate-400">·</span>
-              <span className="text-slate-300">{it.job.city}</span>
-            </div>
-            {(it.name || it.phone) && (
-              <div className="mt-1 text-xs text-slate-300">
-                {it.name ? <span className="mr-2">Name: {it.name}</span> : null}
-                {it.phone ? <span>Phone: {formatPhone(it.phone)}</span> : null}
+    <div className="space-y-3">
+      {isEmpty ? (
+        <div className="rounded-xl border border-slate-800 bg-black/20 p-6 text-slate-300">
+          {roleView === "employer" ? (
+            <span>Nothing yet.</span>
+          ) : (
+            <span>No inquiries yet. Find a listing and tap Inquire.</span>
+          )}
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {withFlags.map((x) => (
+            <li
+              key={x.id}
+              className="rounded-xl border border-slate-800 bg-black/20 p-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/jobs/${x.jobId}`}
+                      className="font-semibold hover:underline"
+                    >
+                      {x.businessName || x.jobTitle || "Listing"}
+                    </Link>
+                    {x.isNew && (
+                      <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-300">
+                        New
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm text-slate-400">
+                    {x.jobTitle}
+                    {x.cityState ? ` · ${x.cityState}` : ""}
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <div className="text-slate-400">Name</div>
+                      <div className="font-medium">{x.name || "—"}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-400">Phone</div>
+                      <div className="font-medium">{x.phone || "—"}</div>
+                    </div>
+                    <div className="sm:col-span-3">
+                      <div className="text-slate-400">Message</div>
+                      <div className="font-medium whitespace-pre-wrap">
+                        {x.note || "—"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="shrink-0">
+                  <button
+                    onClick={() => remove(x.id)}
+                    disabled={pending}
+                    className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-red-500/15 disabled:opacity-50"
+                    title="Remove inquiry (removes for both sides)"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
-            )}
-            {it.note && (
-              <p className="mt-1 line-clamp-2 text-xs text-slate-400">{it.note}</p>
-            )}
-          </div>
 
-          <button
-            onClick={() => onRemove(it.id)}
-            disabled={removing === it.id}
-            className="ml-2 rounded-md border border-white/20 px-3 py-1.5 text-xs text-slate-100 hover:bg-white/10 disabled:opacity-50"
-          >
-            {removing === it.id ? "Removing…" : "Remove"}
-          </button>
-        </li>
-      ))}
-    </ul>
+              <div className="mt-3 text-xs text-slate-500">
+                {new Date(x.createdAt).toLocaleString()}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
-}
-
-function formatPhone(v?: string) {
-  if (!v) return "";
-  const d = v.replace(/\D/g, "").slice(0, 10);
-  const p1 = d.slice(0, 3);
-  const p2 = d.slice(3, 6);
-  const p3 = d.slice(6);
-  if (d.length <= 3) return p1;
-  if (d.length <= 6) return `(${p1}) ${p2}`;
-  return `(${p1}) ${p2}-${p3}`;
 }
