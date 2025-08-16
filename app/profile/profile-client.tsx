@@ -1,68 +1,76 @@
-// app/profile/profile-client.tsx
 "use client";
 
 import { useState } from "react";
 
-type Me = { id: string; name: string; role: "employer" | "talent" | "admin" };
+type Me = {
+  id: string;
+  name: string;
+  role: "talent" | "employer";
+};
 
 export default function ProfileClient({ me }: { me: Me }) {
-  const [name, setName] = useState(me.name || "");
-  const [role, setRole] = useState<"employer" | "talent">(me.role === "employer" ? "employer" : "talent");
+  const [name, setName] = useState(me.name ?? "");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  async function save() {
-    setSaving(true); setMsg(null);
+  const roleLabel = me.role === "employer" ? "Employer" : "Talent";
+
+  async function onSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setMsg(null);
     try {
-      const r = await fetch("/api/profile/update", {
+      const res = await fetch("/api/profile/update", {
         method: "POST",
-        body: JSON.stringify({ name: name.trim() || null, role }),
+        headers: { "Content-Type": "application/json" },
+        // Only update name; role is controlled via the top RoleSwitcher
+        body: JSON.stringify({ name: name.trim() }),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d?.error || "Save failed");
-      setMsg("Saved ✓");
-    } catch (e: any) {
-      setMsg(e.message || "Save failed");
+      if (!res.ok) throw new Error(await res.text());
+      setMsg("Saved!");
+    } catch (err: any) {
+      setMsg(err?.message ?? "Failed to save");
     } finally {
       setSaving(false);
     }
   }
 
-  async function signOut() {
-    await fetch("/api/auth/signout", { method: "POST" });
-    window.location.href = "/signin";
-  }
-
   return (
-    <div className="max-w-md mx-auto space-y-6">
-      <h1 className="text-2xl font-semibold">Your Profile</h1>
-      {msg && <div className="card p-3 text-slate-200">{msg}</div>}
-
-      <div className="card p-5 space-y-4">
-        <label className="block">
-          <div className="mb-1 text-sm text-slate-300">Display name</div>
-          <input className="input w-full" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
-        </label>
-
-        <div className="block">
-          <div className="mb-1 text-sm text-slate-300">I am a</div>
-          <div className="flex gap-4">
-            <label className="inline-flex items-center gap-2">
-              <input type="radio" name="role" value="employer" checked={role === "employer"} onChange={() => setRole("employer")} />
-              <span>Business / Employer</span>
-            </label>
-            <label className="inline-flex items-center gap-2">
-              <input type="radio" name="role" value="talent" checked={role === "talent"} onChange={() => setRole("talent")} />
-              <span>Talent</span>
-            </label>
-          </div>
-        </div>
-
-        <div className="flex gap-3">
-          <button className="btn" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
-          <button className="btn-secondary" onClick={signOut}>Sign out</button>
-        </div>
+    <section className="rounded-xl border border-white/10 bg-white/5 p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Your Profile</h2>
+        <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs">
+          Using StyleHub as: <strong>{roleLabel}</strong>
+        </span>
       </div>
-    </div>
+
+      <form onSubmit={onSave} className="space-y-5">
+        <div>
+          <label className="block text-sm mb-1">Display name</label>
+          <input
+            className="input w-full"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={50}
+            placeholder="Your name or shop name"
+          />
+          <div className="mt-1 text-xs text-white/50">{name.length}/50</div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <button type="submit" className="btn" disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </button>
+          <a href="/signout" className="text-sm underline opacity-80 hover:opacity-100">
+            Sign out
+          </a>
+          {msg && (
+            <span className={`text-sm ${msg === "Saved!" ? "text-emerald-400" : "text-rose-400"}`}>
+              {msg}
+            </span>
+          )}
+        </div>
+      </form>
+    </section>
   );
 }

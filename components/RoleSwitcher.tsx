@@ -1,78 +1,86 @@
-// components/RoleSwitcher.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+
+type RoleView = "talent" | "employer";
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return m ? decodeURIComponent(m[1]) : null;
+}
 
 export default function RoleSwitcher() {
   const router = useRouter();
-  const [role, setRole] = useState<"talent" | "employer" | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [role, setRole] = useState<RoleView | null>(null);
+  const [isPending, startTransition] = useTransition();
 
+  // Initialize from cookie; fall back to server default via /api/auth/me
   useEffect(() => {
-    fetch("/api/auth/role", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setRole((d.role as any) ?? "talent"))
-      .catch(() => setRole("talent"));
+    const fromCookie = readCookie("roleView") as RoleView | null;
+    if (fromCookie === "talent" || fromCookie === "employer") {
+      setRole(fromCookie);
+      return;
+    }
+    // Fallback to server-stored role
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        if (res.ok) {
+          const json = await res.json();
+          const r = (json?.user?.role as RoleView) ?? "talent";
+          setRole(r);
+        } else {
+          setRole("talent");
+        }
+      } catch {
+        setRole("talent");
+      }
+    })();
   }, []);
 
-  async function choose(next: "talent" | "employer") {
-    setBusy(true);
-    setError(null);
+  async function pick(next: RoleView) {
+    if (role === next || isPending) return;
+    setRole(next); // optimistic
     try {
-      const res = await fetch("/api/auth/role", {
+      await fetch("/api/profile/role", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: next }),
+        body: JSON.stringify({ roleView: next }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.message || "Failed to switch role");
-      }
-      setRole(next);
-      // Refresh server components (header) and hard reload as fallback
-      router.refresh();
-      setTimeout(() => window.location.reload(), 25);
-    } catch (e: any) {
-      setError(e?.message || "Failed to switch role");
     } finally {
-      setBusy(false);
+      // Ensure all server components (e.g., header links, /inbox copy) pick up cookie
+      startTransition(() => router.refresh());
     }
   }
 
+  const isTalent = role === "talent";
+  const isEmployer = role === "employer";
+
   return (
-    <div className="rounded-lg border border-white/10 p-4">
-      <div className="mb-2 text-sm text-slate-300">Use StyleHub as</div>
-      <div className="flex gap-2">
+    <div className="mb-6">
+      <p className="text-sm mb-2">Use StyleHub as</p>
+      <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
         <button
-          onClick={() => choose("talent")}
-          disabled={busy}
-          aria-pressed={role === "talent"}
-          className={
-            "rounded-md px-3 py-2 text-sm " +
-            (role === "talent"
-              ? "bg-white text-black"
-              : "border border-white/20 hover:bg-white/10")
-          }
+          type="button"
+          aria-pressed={isTalent}
+          onClick={() => pick("talent")}
+          className={`px-3 py-1.5 rounded-lg text-sm transition
+            ${isTalent ? "bg-white text-black" : "text-white/80 hover:text-white"}`}
         >
           Talent
         </button>
         <button
-          onClick={() => choose("employer")}
-          disabled={busy}
-          aria-pressed={role === "employer"}
-          className={
-            "rounded-md px-3 py-2 text-sm " +
-            (role === "employer"
-              ? "bg-white text-black"
-              : "border border-white/20 hover:bg-white/10")
-          }
+          type="button"
+          aria-pressed={isEmployer}
+          onClick={() => pick("employer")}
+          className={`px-3 py-1.5 rounded-lg text-sm transition
+            ${isEmployer ? "bg-white text-black" : "text-white/80 hover:text-white"}`}
         >
           Employer
         </button>
       </div>
-      {error && <div className="mt-2 text-sm text-red-300">{error}</div>}
     </div>
   );
 }

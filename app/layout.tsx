@@ -1,18 +1,15 @@
 // app/layout.tsx
-export const dynamic = "force-dynamic";
-
 import "./globals.css";
 import { Inter } from "next/font/google";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import AuthLinks from "@/components/AuthLinks";
-import EmployerManageLink from "@/components/EmployerManageLink";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
   title: "StyleHub",
-  description:
-    "Connecting local beauty & body-art talent with shops — San Diego",
+  description: "Connecting local beauty & body-art talent with shops — San Diego",
 };
 
 export default function RootLayout({
@@ -20,6 +17,11 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Decide which set of nav links to render based on the roleView cookie
+  const c = cookies();
+  const rv = c.get("roleView")?.value;
+  const roleView = rv === "employer" ? "employer" : "talent"; // default to talent
+
   return (
     <html lang="en" className="h-full">
       <body className={`${inter.className} min-h-screen`}>
@@ -29,12 +31,25 @@ export default function RootLayout({
             <Link href="/" className="text-xl font-semibold tracking-tight">
               StyleHub
             </Link>
+
             <div className="flex items-center gap-5 text-sm">
-              <Link href="/jobs" className="hover:text-white/90">Jobs</Link>
-              <Link href="/post" className="hover:text-white/90">Post a Job</Link>
+              {/* Talent: Jobs; Employer: Manage + Post a Job */}
+              {roleView === "talent" ? (
+                <>
+                  <Link href="/jobs" className="hover:text-white/90">Jobs</Link>
+                </>
+              ) : (
+                <>
+                  <Link href="/jobs/manage" className="hover:text-white/90">Manage</Link>
+                  <Link href="/post" className="hover:text-white/90">Post a Job</Link>
+                </>
+              )}
+
+              {/* Common */}
               <Link href="/inbox" className="hover:text-white/90">Inbox</Link>
               <Link href="/profile" className="hover:text-white/90">Profile</Link>
-              <EmployerManageLink />
+
+              {/* Auth */}
               <AuthLinks />
             </div>
           </nav>
