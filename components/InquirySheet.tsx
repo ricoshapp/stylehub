@@ -1,7 +1,8 @@
+// components/InquirySheet.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import CTAButton from "@/components/CTAButton";
+import { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
 
 type Props = {
   jobId: string;
@@ -9,51 +10,45 @@ type Props = {
   onClose: () => void;
 };
 
-// Format digits -> "(xxx) xxx-xxxx"
-function formatPhoneFromDigits(digits: string) {
-  const d = digits.replace(/\D/g, "").slice(0, 10);
-  const p1 = d.slice(0, 3);
-  const p2 = d.slice(3, 6);
-  const p3 = d.slice(6, 10);
-  if (d.length <= 3) return p1;
-  if (d.length <= 6) return `(${p1}) ${p2}`;
-  return `(${p1}) ${p2}-${p3}`;
-}
-
 export default function InquirySheet({ jobId, open, onClose }: Props) {
   const [name, setName] = useState("");
-  const [phoneDigits, setPhoneDigits] = useState(""); // raw digits only
+  const [email, setEmail] = useState(""); // read-only, auto-filled
+  const [phone, setPhone] = useState(""); // formatted as (XXX) XXX-XXXX
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
-  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const [ok,   setOk]   = useState<string | null>(null);
 
-  // Close on ESC
+  // Prefill current user email
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/auth/me");
+        if (!r.ok) return;
+        const { user } = await r.json();
+        if (alive && user?.email) setEmail(user.email);
+        if (alive && user?.name && !name) setName(user.name);
+      } catch {}
+    })();
+    return () => { alive = false; };
+  }, []);
 
-  // Prevent background scroll while open
-  useEffect(() => {
-    if (!open) return;
-    const original = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = original;
-    };
-  }, [open]);
-
-  const phoneFormatted = useMemo(() => formatPhoneFromDigits(phoneDigits), [phoneDigits]);
+  // Phone formatting that allows deletion at any point
+  function formatPhone(raw: string) {
+    const d = raw.replace(/\D/g, "").slice(0, 10);
+    const a = d.slice(0, 3);
+    const b = d.slice(3, 6);
+    const c = d.slice(6, 10);
+    if (d.length <= 3) return a;
+    if (d.length <= 6) return `(${a}) ${b}`;
+    return `(${a}) ${b}-${c}`;
+  }
 
   const canSubmit = useMemo(() => {
-    return name.trim().length > 0 && phoneDigits.length === 10;
-  }, [name, phoneDigits]);
+    const digits = phone.replace(/\D/g, "");
+    return name.trim().length > 0 && digits.length === 10;
+  }, [name, phone]);
 
   async function submit() {
     if (!canSubmit || busy) return;
@@ -61,152 +56,124 @@ export default function InquirySheet({ jobId, open, onClose }: Props) {
     setError(null);
     setOk(null);
     try {
+      // Keep server payload unchanged to avoid breaking existing API:
+      // Not sending email yet (UI-only). If we want to store it later,
+      // we’ll update the API route + schema safely.
       const res = await fetch("/api/inbox/enquiries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           jobId,
-          name: name.trim().slice(0, 25),
-          phone: phoneDigits, // send raw digits; server can format as needed
-          note: (note || "").slice(0, 200),
+          name: name.trim(),
+          phone,
+          note: note.trim(),
         }),
       });
 
+      if (res.status === 401) {
+        // Not signed in — go sign in, then come back to this job
+        window.location.href = `/signin?next=/jobs/${jobId}`;
+        return;
+      }
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(
-          data?.message ||
-            data?.error ||
-            "Failed to create inquiry. Please try again."
-        );
+        const t = await res.text().catch(() => "");
+        setError(t || "Failed to create inquiry.");
         return;
       }
 
       setOk("Inquiry sent!");
-      // Optional: close after a short delay
       setTimeout(() => {
         onClose();
-        // Clear form
-        setName("");
-        setPhoneDigits("");
-        setNote("");
-        setOk(null);
       }, 800);
     } catch (e: any) {
-      setError(e?.message || "Something went wrong.");
+      setError(e?.message || "Failed to create inquiry.");
     } finally {
       setBusy(false);
     }
   }
 
-  function onPhoneChange(v: string) {
-    // Always derive state from digits; this makes deletion/backspace natural
-    const digitsOnly = v.replace(/\D/g, "").slice(0, 10);
-    setPhoneDigits(digitsOnly);
-  }
-
   if (!open) return null;
 
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-[100] flex items-center justify-center"
-      aria-modal="true"
-      role="dialog"
-    >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Sheet / modal */}
-      <div className="relative z-[101] w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-neutral-900 p-5 shadow-2xl">
-        <div className="mb-3 flex items-start justify-between">
-          <h2 className="text-lg font-semibold">Send an Inquiry</h2>
+    <div className="fixed inset-0 z-[80] flex items-end md:items-center justify-center bg-black/60">
+      <div className="w-full md:max-w-lg bg-zinc-950 border border-slate-800 rounded-xl p-4 shadow-xl">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-semibold">Send an Inquiry</h3>
           <button
+            className="p-2 rounded hover:bg-white/10"
             onClick={onClose}
-            className="rounded-md px-2 py-1 text-sm text-white/70 hover:bg-white/10"
+            aria-label="Close"
           >
-            Close
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="space-y-4">
-          {/* Name */}
+        <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-sm text-white/70">Name</label>
+            <label className="block text-xs text-slate-300 mb-1">Name</label>
             <input
-              type="text"
-              inputMode="text"
-              placeholder="Your name"
+              className="input w-full"
               maxLength={25}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              placeholder="Your name"
             />
           </div>
 
-          {/* Phone */}
           <div>
-            <label className="mb-1 block text-sm text-white/70">
-              Phone (10 digits)
-            </label>
+            <label className="block text-xs text-slate-300 mb-1">Email</label>
             <input
-              type="tel"
-              inputMode="numeric"
-              placeholder="(555) 123-4567"
-              value={phoneFormatted}
-              onChange={(e) => onPhoneChange(e.target.value)}
-              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              className="input w-full opacity-80"
+              value={email}
+              readOnly
+              disabled
+              placeholder="(auto from account)"
+              title={email ? email : "Auto-filled from your account"}
             />
-            <p className="mt-1 text-xs text-white/40">
-              Area code formats automatically. Only digits are required.
-            </p>
           </div>
 
-          {/* Message */}
           <div>
-            <label className="mb-1 block text-sm text-white/70">
-              Short message (optional)
-            </label>
+            <label className="block text-xs text-slate-300 mb-1">Phone</label>
+            <input
+              className="input w-full"
+              inputMode="numeric"
+              maxLength={14} // (XXX) XXX-XXXX
+              value={phone}
+              onChange={(e) => setPhone(formatPhone(e.target.value))}
+              placeholder="(555) 123-4567"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-slate-300 mb-1">Short message</label>
             <textarea
-              rows={4}
-              placeholder="Say hello and share your availability (max 200 chars)…"
+              className="input w-full h-24 resize-none"
               maxLength={200}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              className="w-full resize-none rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              placeholder="Optional message (max 200)"
             />
           </div>
 
-          {/* Status */}
-          {(error || ok) && (
-            <div
-              className={`rounded-md px-3 py-2 text-sm ${
-                error ? "bg-red-500/10 text-red-300" : "bg-emerald-500/10 text-emerald-300"
-              }`}
-            >
-              {error || ok}
-            </div>
+          {error && (
+            <div className="text-red-400 text-sm">{error}</div>
+          )}
+          {ok && (
+            <div className="text-green-400 text-sm">{ok}</div>
           )}
 
-          {/* Actions */}
-          <div className="flex items-center justify-end gap-3 pt-1">
-            <button
-              onClick={onClose}
-              className="rounded-md border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
-              disabled={busy}
-            >
+          <div className="flex justify-end gap-2 pt-1">
+            <button className="rounded-md border border-slate-700 px-3 py-1.5 text-sm hover:bg-white/10" onClick={onClose} disabled={busy}>
               Cancel
             </button>
-            <CTAButton
+            <button
+              className="rounded-md bg-green-500 text-black px-3 py-1.5 text-sm font-semibold hover:bg-green-400 disabled:opacity-50"
               onClick={submit}
               disabled={!canSubmit || busy}
-              className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {busy ? "Sending…" : "Send Inquiry"}
-            </CTAButton>
+            </button>
           </div>
         </div>
       </div>
