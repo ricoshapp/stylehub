@@ -1,7 +1,7 @@
 // app/jobs/page.tsx
 import { prisma } from "@/lib/db";
 import Link from "next/link";
-import { MapPin, BadgeDollarSign, Briefcase, Scissors, Award, Info } from "lucide-react";
+import { MapPin, BadgeDollarSign, Briefcase, Scissors, Award, Info, Store } from "lucide-react";
 import FilterBar from "@/components/FilterBar";
 
 export const dynamic = "force-dynamic";
@@ -58,15 +58,12 @@ function buildWhere(searchParams: Record<string, string | string[] | undefined>)
   const q = ((searchParams.q as string) || "").trim();
 
   const where: any = {};
-
   if (role) where.role = role;
   if (comp) where.compModel = comp;
 
   if (sched) {
-    where.AND = [
-      ...(where.AND || []),
-      { OR: [{ employmentType: sched }, { schedule: sched }] },
-    ];
+    // We only persist schedule, show “Any” when null in UI
+    if (sched !== "any") where.schedule = sched;
   }
 
   if (city) {
@@ -144,7 +141,12 @@ export default async function JobsPage({
   if (!Number.isNaN(lat) && !Number.isNaN(lng) && !Number.isNaN(radius)) {
     withGeo = dbJobs
       .map((j) => {
-        const d = milesBetween(lat, lng, j.location?.lat ?? null, j.location?.lng ?? null);
+        const d = milesBetween(
+          lat,
+          lng,
+          j.location?.lat ?? null,
+          j.location?.lng ?? null
+        );
         return { job: j, d };
       })
       .filter((x) => x.d <= radius)
@@ -161,88 +163,99 @@ export default async function JobsPage({
       <FilterBar />
 
       {/* Sticky column labels BELOW filter, ABOVE listings */}
-      <div className="hidden md:block sticky top-[64px] z-10 rounded-xl border border-slate-800 bg-zinc-950/80 backdrop-blur p-3">
-        <div className="flex items-center gap-3">
-          <div className="w-[208px]" />
-          <div className="grid grid-cols-6 gap-3 flex-1 text-sm text-slate-300">
-            <div className="flex items-center gap-2"><Scissors className="h-5 w-5" /> Business &amp; Title</div>
-            <div className="flex items-center gap-2"><Scissors className="h-5 w-5" /> Service</div>
-            <div className="flex items-center gap-2"><Briefcase className="h-5 w-5" /> Schedule</div>
-            <div className="flex items-center gap-2"><Award className="h-5 w-5" /> Experience</div>
-            <div className="flex items-center gap-2"><BadgeDollarSign className="h-5 w-5" /> Compensation</div>
-            <div className="flex items-center gap-2"><MapPin className="h-5 w-5" /> Location</div>
-          </div>
+      <div className="sticky top-[var(--header-bottom,4rem)] z-20 hidden md:grid grid-cols-[320px_140px_160px_120px_150px_1fr] gap-3 px-2 py-2 border-b border-slate-800 bg-black/40 backdrop-blur supports-[backdrop-filter]:bg-black/30">
+        <div className="flex items-center gap-2 text-slate-300">
+          <Store className="h-4 w-4" />
+          <span className="font-medium">Business &amp; Title</span>
+        </div>
+        <div className="flex items-center gap-2 text-slate-300">
+          <Scissors className="h-4 w-4" />
+          <span className="font-medium">Service</span>
+        </div>
+        <div className="flex items-center gap-2 text-slate-300">
+          <Briefcase className="h-4 w-4" />
+          <span className="font-medium">Schedule</span>
+        </div>
+        <div className="flex items-center gap-2 text-slate-300">
+          <Award className="h-4 w-4" />
+          <span className="font-medium">Experience</span>
+        </div>
+        <div className="flex items-center gap-2 text-slate-300">
+          <BadgeDollarSign className="h-4 w-4" />
+          <span className="font-medium">Compensation</span>
+        </div>
+        <div className="flex items-center gap-2 text-slate-300">
+          <MapPin className="h-4 w-4" />
+          <span className="font-medium">Location</span>
         </div>
       </div>
 
       {demoMode && (
-        <div className="rounded-lg border border-slate-800 bg-zinc-950/60 p-3 text-sm text-slate-300 flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-amber-100/10 px-3 py-2 text-sm text-amber-200">
           <Info className="h-4 w-4" />
-          Showing demo jobs (no records in your database yet). Post one at <code>/post</code> to see live data.
+          Showing demo jobs (no records in your database yet). Post one at <code className="px-1">/post</code> to see live data.
         </div>
       )}
 
       {!demoMode && jobs.length === 0 && (
-        <div className="rounded-lg border border-slate-800 bg-zinc-950/60 p-3 text-sm text-slate-300">
-          No jobs match your filters. Try clearing some filters.
-        </div>
+        <div className="text-sm text-slate-300">No jobs match your filters. Try clearing some filters.</div>
       )}
 
       {/* Listings */}
       <div className="space-y-3">
         {jobs.map((job: any) => {
           const photo = job.photos?.[0]?.url || "/placeholder.jpg";
-          const loc = [job.location?.city, job.location?.state].filter(Boolean).join(", ") || "—";
-          const schedule = job.schedule ? titleize(job.schedule) : job.employmentType ? titleize(job.employmentType) : "—";
+          const loc =
+            [job.location?.city, job.location?.state].filter(Boolean).join(", ") || "—";
+          const schedule =
+            job.schedule ? titleize(job.schedule) : "Any"; // <— no employmentType here
           const comp = job.compModel ? titleize(job.compModel) : "—";
           const exp = job.experienceText || "Any";
           const href = demoMode ? "#" : `/jobs/${job.id}`;
 
           return (
-            <Link
+            <div
               key={job.id}
-              href={href}
-              className={`block rounded-xl border border-slate-800 bg-zinc-950/60 ${demoMode ? "pointer-events-none opacity-90" : "hover:bg-zinc-900/60"} transition`}
+              className="rounded-xl border border-slate-800 bg-black/30 hover:bg-black/40"
             >
-              {/* Desktop row */}
-              <div className="hidden md:flex items-stretch gap-3 p-3">
-                <div className="w-[208px] rounded-lg overflow-hidden border border-slate-800 bg-black shrink-0">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={photo} alt="" className="w-full h-28 object-cover" />
+              <Link href={href} className="block">
+                {/* Desktop row */}
+                <div className="hidden md:grid grid-cols-[320px_140px_160px_120px_150px_1fr] gap-3 p-2">
+                  {/* Left: photo + business + title */}
+                  <div className="flex gap-3 items-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photo}
+                      alt=""
+                      className="h-16 w-24 rounded-md object-cover"
+                    />
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate">{job.businessName}</div>
+                      <div className="text-sm text-slate-300 line-clamp-2">{job.title}</div>
+                    </div>
+                  </div>
+
+                  <div className="self-center">{titleize(job.role)}</div>
+                  <div className="self-center">{schedule}</div>
+                  <div className="self-center">{exp}</div>
+                  <div className="self-center">{comp}</div>
+                  <div className="self-center">{loc}</div>
                 </div>
 
-                <div className="grid grid-cols-6 gap-3 flex-1 items-center">
-                  <div className="min-w-0">
-                    <div className="font-semibold truncate text-slate-100">{job.businessName}</div>
-                    <div className="text-sm text-slate-300 line-clamp-2 break-words">{job.title}</div>
-                  </div>
-                  <div className="text-sm text-slate-100">{titleize(job.role)}</div>
-                  <div className="text-sm text-slate-100">{schedule}</div>
-                  <div className="text-sm text-slate-100">{exp}</div>
-                  <div className="text-sm text-slate-100">{comp}</div>
-                  <div className="text-sm text-slate-100">{loc}</div>
-                </div>
-              </div>
-
-              {/* Mobile card */}
-              <div className="md:hidden p-3 space-y-2">
-                <div className="rounded-lg overflow-hidden border border-slate-800 bg-black">
+                {/* Mobile card */}
+                <div className="md:hidden p-3 space-y-2">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={photo} alt="" className="w-full h-40 object-cover" />
+                  <img src={photo} alt="" className="h-32 w-full rounded-md object-cover" />
+                  <div className="font-semibold">{job.businessName}</div>
+                  <div className="text-sm text-slate-300">{job.title}</div>
+                  <div className="text-sm">Service: {titleize(job.role)}</div>
+                  <div className="text-sm">Schedule: {schedule}</div>
+                  <div className="text-sm">Experience: {exp}</div>
+                  <div className="text-sm">Comp: {comp}</div>
+                  <div className="text-sm">{loc}</div>
                 </div>
-                <div className="font-semibold text-slate-100">{job.businessName}</div>
-                <div className="text-sm text-slate-300">{job.title}</div>
-                <div className="grid grid-cols-2 gap-2 text-sm pt-2">
-                  <div><span className="text-slate-400">Service: </span>{titleize(job.role)}</div>
-                  <div><span className="text-slate-400">Schedule: </span>{schedule}</div>
-                  <div><span className="text-slate-400">Experience: </span>{exp}</div>
-                  <div><span className="text-slate-400">Comp: </span>{comp}</div>
-                  <div className="col-span-2 flex items-center gap-1">
-                    <MapPin className="h-4 w-4" /> {loc}
-                  </div>
-                </div>
-              </div>
-            </Link>
+              </Link>
+            </div>
           );
         })}
       </div>

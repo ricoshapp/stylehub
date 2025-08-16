@@ -1,34 +1,39 @@
-// components/FilterBar.tsx
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Filter,
   X,
   MapPin,
-  Briefcase,
+  Store,
   Scissors,
   BadgeDollarSign,
   Search,
   Crosshair,
-  LocateFixed,
+  Briefcase,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import CTAButton from "@/components/CTAButton";
 
-// Keep your dynamic import + behavior
-const MapAddressModal = dynamic(() => import("./MapAddressModal"), {
-  ssr: false,
-});
+const MapAddressModal = dynamic(() => import("./MapAddressModal"), { ssr: false });
 
-// ===== Static options (unchanged for comp/schedule). Service limited as requested =====
+type Q = {
+  q?: string;
+  role?: string;
+  comp?: string;
+  sched?: string;
+  city?: string;
+  address?: string;
+  radius?: string;
+  lat?: string;
+  lng?: string;
+};
+
 const ROLES = [
   { value: "", label: "Any service" },
   { value: "barber", label: "Barber" },
   { value: "cosmetologist", label: "Cosmetologist" },
   { value: "tattoo_artist", label: "Tattoo Artist" },
-  // removed: esthetician, nail_tech, lash_tech, piercer (per request)
 ];
 
 const COMP_MODELS = [
@@ -46,34 +51,15 @@ const SCHEDULES = [
   { value: "any", label: "Any" },
 ];
 
-type Q = {
-  q?: string;
-  role?: string;
-  comp?: string;
-  sched?: string;
-  city?: string; // optional; ignored if lat/lng present
-  address?: string;
-  radius?: string; // miles
-  lat?: string;
-  lng?: string;
-};
-
-// keep radius behavior the same (5-40, default 15)
-function clampRadius(v: number) {
-  if (Number.isNaN(v)) return 15;
-  if (v < 5) return 5;
-  if (v > 40) return 40;
-  return Math.round(v);
-}
+type K = keyof Q;
 
 export default function FilterBar() {
   const router = useRouter();
   const sp = useSearchParams();
-
   const [open, setOpen] = useState(true);
   const [showMap, setShowMap] = useState(false);
+  const firstLoadAutoLocated = useRef(false);
 
-  // ===== Read initial state from URL or localStorage (unchanged behavior) =====
   const initial = useMemo(() => {
     const get = (k: string) => sp.get(k) ?? "";
     return {
@@ -86,25 +72,16 @@ export default function FilterBar() {
       radius: get("radius") || "15",
       lat: get("lat") || "",
       lng: get("lng") || "",
-    };
+    } as Q;
   }, [sp]);
 
   const [form, setForm] = useState<Q>(initial);
   const [cityTyping, setCityTyping] = useState(initial.city ?? "");
 
   useEffect(() => {
-    const hasAny = [
-      "q",
-      "role",
-      "comp",
-      "sched",
-      "city",
-      "address",
-      "radius",
-      "lat",
-      "lng",
-    ].some((k) => Boolean(sp.get(k)));
-
+    const hasAny = ["q", "role", "comp", "sched", "city", "address", "radius", "lat", "lng"].some(
+      (k) => Boolean(sp.get(k))
+    );
     if (!hasAny) {
       const saved = localStorage.getItem("jobsFilters");
       if (saved) {
@@ -125,18 +102,14 @@ export default function FilterBar() {
     localStorage.setItem("jobsFilters", JSON.stringify(form));
   }, [form]);
 
-  type K = keyof Q;
   const setField = useCallback((k: K, v: Q[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
   }, []);
 
-  // ===== Apply / Reset (same logic) =====
   const submit = useCallback(
     (e?: React.FormEvent) => {
       e?.preventDefault();
       const copy: Q = { ...form };
-
-      // If precise lat/lng present, ignore city to allow cross-city radius
       if (copy.lat && copy.lng) copy.city = "";
 
       const params = new URLSearchParams();
@@ -144,7 +117,6 @@ export default function FilterBar() {
         const val = (copy[k] ?? "").toString().trim();
         if (val) params.set(k, val);
       });
-
       router.push(`/jobs${params.toString() ? `?${params.toString()}` : ""}`);
     },
     [form, router]
@@ -163,128 +135,118 @@ export default function FilterBar() {
       lng: "",
     });
     setCityTyping("");
-    router.push("/jobs");
-  }, [router]);
+  }, []);
 
-  // ===== Geolocate (unchanged) =====
-  const useMyLocation = useCallback(() => {
+  useEffect(() => {
+    if (firstLoadAutoLocated.current) return;
+    const none = !form.q && !form.role && !form.comp && !form.sched && !form.city && !form.address && !form.lat && !form.lng;
+    if (!none) return;
     if (!navigator.geolocation) return;
+
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
+        firstLoadAutoLocated.current = true;
         const { latitude, longitude } = pos.coords;
-        setForm((f) => ({
-          ...f,
+
+        let address = "Current location";
+        try {
+          const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`;
+          const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+          if (res.ok) {
+            const data = await res.json();
+            const a = data.address || {};
+            const road = a.road || a.pedestrian || a.path || "";
+            const hn = a.house_number ? `${a.house_number} ` : "";
+            if (road) address = `${hn}${road}`;
+          }
+        } catch {}
+
+        const next: Q = {
+          ...form,
           lat: String(latitude),
           lng: String(longitude),
+          address,
           city: "",
-          address: "Current location",
-        }));
-        setCityTyping("");
+        };
+        setForm(next);
+
+        const params = new URLSearchParams();
+        (Object.keys(next) as (keyof Q)[]).forEach((k) => {
+          const val = (next[k] ?? "").toString().trim();
+          if (val) params.set(k, val);
+        });
+        router.push(`/jobs?${params.toString()}`);
       },
       () => {},
       { timeout: 8000 }
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== City typing (unchanged) =====
   const onCityChange = (v: string) => {
     setCityTyping(v);
     setField("city", v);
   };
 
-  // ===== Filter chips (unchanged) =====
   const chips: Array<{ k: keyof Q; label: string }> = [];
   if (form.q) chips.push({ k: "q", label: `Search: ${form.q}` });
-  if (form.role)
-    chips.push({
-      k: "role",
-      label: ROLES.find((r) => r.value === form.role)?.label || form.role!,
-    });
-  if (form.sched)
-    chips.push({
-      k: "sched",
-      label: SCHEDULES.find((s) => s.value === form.sched)?.label || form.sched!,
-    });
-  if (form.comp)
-    chips.push({
-      k: "comp",
-      label:
-        COMP_MODELS.find((c) => c.value === form.comp)?.label || form.comp!,
-    });
+  if (form.role) chips.push({ k: "role", label: ROLES.find((r) => r.value === form.role)?.label || form.role! });
+  if (form.sched) chips.push({ k: "sched", label: SCHEDULES.find((s) => s.value === form.sched)?.label || form.sched! });
+  if (form.comp) chips.push({ k: "comp", label: COMP_MODELS.find((c) => c.value === form.comp)?.label || form.comp! });
   if (form.city) chips.push({ k: "city", label: `City: ${form.city}` });
   if (form.address) chips.push({ k: "address", label: `Near: ${form.address}` });
-  if (form.lat && form.lng && form.radius)
-    chips.push({ k: "radius", label: `Radius: ${form.radius} mi` });
+  if (form.lat && form.lng && form.radius) chips.push({ k: "radius", label: `Radius: ${form.radius} mi` });
+
+  const onRadiusChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    setField("radius", String(e.target.value));
+  };
+  const onRadiusCommit = () => submit();
 
   return (
     <>
-      {/* Header row: toggle + actions (Apply/Reset moved up & flush) */}
-      <div className="mb-2 flex items-start justify-between">
+      <div className="flex items-center justify-between py-2">
+        {/* Unified style for open/close button */}
         <button
           onClick={() => setOpen((v) => !v)}
-          className="inline-flex items-center gap-2 text-slate-200 hover:text-white"
+          className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-zinc-900 px-3 py-1.5 text-sm text-slate-100 hover:bg-zinc-800"
           aria-expanded={open}
+          title={open ? "Hide filters" : "Show filters"}
         >
-          <Filter size={16} />
-          <span>Filters</span>
+          {open ? <X className="h-4 w-4" /> : <Filter className="h-4 w-4" />}
+          Filters
         </button>
 
-        <div className="flex items-start gap-2">
-          <CTAButton
-            onClick={submit}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white"
-          >
-            Apply
-          </CTAButton>
-          <button
-            onClick={clearAll}
-            className="rounded-md border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
-            title="Reset all filters"
-          >
-            Reset
-          </button>
-        </div>
+        {chips.length > 0 && (
+          <div className="hidden md:flex flex-wrap gap-2">
+            {chips.map(({ k, label }) => (
+              <button
+                key={`${k}:${label}`}
+                onClick={() => setField(k, "")}
+                className="inline-flex items-center gap-1 rounded-full bg-zinc-900 border border-slate-800 px-2 py-1 text-xs text-slate-200 hover:bg-zinc-800"
+                title="Remove filter"
+              >
+                {label} <X className="h-3 w-3 opacity-70" />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Active filter chips (unchanged) */}
-      {chips.length > 0 && (
-        <div className="mb-3 flex flex-wrap gap-2">
-          {chips.map(({ k, label }) => (
-            <button
-              key={k as string}
-              onClick={() => setField(k, "")}
-              className="inline-flex items-center gap-1 rounded-full bg-zinc-900 border border-slate-800 px-2 py-1 text-xs text-slate-200 hover:bg-zinc-800"
-              title="Remove filter"
-            >
-              {label}
-              <X size={12} />
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Body — full filter panel (unchanged behaviors) */}
       {open && (
-        <form
-          onSubmit={submit}
-          className="rounded-xl border border-slate-800 bg-black/30 p-3 sm:p-4"
-        >
-          {/* Row 1: Search / Service / Schedule / Compensation */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {/* Search */}
-            <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-black/20 px-3 py-2">
-              <Search size={14} className="text-slate-400" />
+        <form onSubmit={submit} className="rounded-xl border border-slate-800 bg-black/30 p-3 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2">
+              <Search className="h-4 w-4 opacity-80 shrink-0" />
               <input
                 value={form.q || ""}
                 onChange={(e) => setField("q", e.target.value)}
                 placeholder="Search title or business"
-                className="w-full rounded-md border border-white/10 bg-zinc-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full bg-transparent outline-none text-sm text-slate-100 placeholder:text-slate-400"
               />
             </div>
 
-            {/* Service (limited to requested options) */}
-            <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-black/20 px-3 py-2">
-              <Scissors size={14} className="text-slate-400" />
+            <div className="flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2">
+              <Store className="h-4 w-4 opacity-80 shrink-0" />
               <select
                 value={form.role || ""}
                 onChange={(e) => setField("role", e.target.value)}
@@ -298,9 +260,8 @@ export default function FilterBar() {
               </select>
             </div>
 
-            {/* Schedule */}
-            <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-black/20 px-3 py-2">
-              <Briefcase size={14} className="text-slate-400" />
+            <div className="flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2">
+              <Briefcase className="h-4 w-4 opacity-80 shrink-0" />
               <select
                 value={form.sched || ""}
                 onChange={(e) => setField("sched", e.target.value)}
@@ -314,9 +275,8 @@ export default function FilterBar() {
               </select>
             </div>
 
-            {/* Compensation */}
-            <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-black/20 px-3 py-2">
-              <BadgeDollarSign size={14} className="text-slate-400" />
+            <div className="flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2">
+              <BadgeDollarSign className="h-4 w-4 opacity-80 shrink-0" />
               <select
                 value={form.comp || ""}
                 onChange={(e) => setField("comp", e.target.value)}
@@ -331,11 +291,9 @@ export default function FilterBar() {
             </div>
           </div>
 
-          {/* Row 2: City / Address + (Set) / Radius + Use my location */}
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {/* City */}
-            <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-black/20 px-3 py-2">
-              <MapPin size={14} className="text-slate-400" />
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_1.5fr_260px] gap-3">
+            <div className="flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2">
+              <Scissors className="h-4 w-4 opacity-80 shrink-0" />
               <input
                 value={cityTyping}
                 onChange={(e) => onCityChange(e.target.value)}
@@ -344,16 +302,15 @@ export default function FilterBar() {
               />
             </div>
 
-            {/* Address + Set (Map) */}
-            <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-black/20 px-3 py-2">
-              <LocateFixed size={14} className="text-slate-400" />
+            <div className="flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2">
+              <MapPin className="h-4 w-4 opacity-80 shrink-0" />
               <input
                 value={form.address || ""}
                 onChange={(e) => setField("address", e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    setShowMap(true); // open modal on Enter for precise pick
+                    setShowMap(true);
                   }
                 }}
                 placeholder="Address (Enter or Set to pick on map)"
@@ -367,55 +324,83 @@ export default function FilterBar() {
               >
                 Set
               </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!navigator.geolocation) return;
+                  navigator.geolocation.getCurrentPosition(
+                    async ({ coords }) => {
+                      const { latitude, longitude } = coords;
+                      setForm((f) => ({
+                        ...f,
+                        lat: String(latitude),
+                        lng: String(longitude),
+                        city: "",
+                        address: "Current location",
+                      }));
+                      submit();
+                    },
+                    () => {},
+                    { timeout: 8000 }
+                  );
+                }}
+                className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-zinc-800 text-slate-100 hover:bg-zinc-700"
+                title="Use my location"
+              >
+                <Crosshair className="h-3 w-3" /> Use my location
+              </button>
             </div>
 
-            {/* Radius + Use my location */}
-            <div className="rounded-md border border-slate-800 bg-black/20 px-3 py-2">
+            <div className="rounded-lg bg-zinc-900 px-3 py-2">
               <div className="flex items-center justify-between text-xs text-slate-300">
-                <span>
-                  Radius: <strong>{form.radius ?? "15"}</strong> mi
-                </span>
-                <button
-                  type="button"
-                  onClick={useMyLocation}
-                  className="inline-flex items-center gap-1 rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10"
-                  title="Use my location"
-                >
-                  <Crosshair size={12} />
-                  Use my location
-                </button>
+                <span>Radius</span>
+                <span className="font-medium">{form.radius ?? "15"} mi</span>
               </div>
               <input
                 type="range"
                 min={5}
                 max={40}
-                step={1}
-                value={clampRadius(parseInt(form.radius || "15", 10))}
-                onChange={(e) =>
-                  setField("radius", String(clampRadius(parseInt(e.target.value, 10))))
-                }
+                step={5}
+                value={Number(form.radius ?? 15)}
+                onChange={onRadiusChange}
+                onMouseUp={onRadiusCommit}
+                onTouchEnd={onRadiusCommit}
                 className="w-full mt-2"
               />
             </div>
           </div>
 
-          {/* Hidden lat/lng (state only; URL set on submit) */}
-          {/* kept intentionally invisible */}
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={clearAll}
+              className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-100 hover:bg-white/10"
+              title="Reset filters"
+            >
+              Reset
+            </button>
+            <button
+              type="submit"
+              className="rounded-md bg-green-500 text-black px-3 py-1.5 text-sm font-semibold hover:bg-green-400"
+              title="Apply filters"
+            >
+              Apply
+            </button>
+          </div>
         </form>
       )}
 
-      {/* Map modal stays the same pattern as your previous code */}
       {showMap && (
         <MapAddressModal
-          open={showMap}
+          initialAddress={form.address || ""}
           onClose={() => setShowMap(false)}
-          onSelect={(o: { lat: number; lng: number; address: string }) => {
+          onSelect={(o) => {
             const next: Q = {
               ...form,
               address: o.address,
               lat: String(o.lat),
               lng: String(o.lng),
-              city: "", // allow cross-city radius searches
+              city: "",
             };
             setForm(next);
             const params = new URLSearchParams();
