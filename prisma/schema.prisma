@@ -116,6 +116,7 @@ model Job {
   inquiries          Inquiry[]
   viewsCount         Int              @default(0)
   inquiriesCount     Int              @default(0)
+  expiresAt          DateTime?        @map("expires_at")
 
   @@index([role])
   @@index([status])

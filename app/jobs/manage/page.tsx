@@ -2,46 +2,29 @@
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import Link from "next/link";
-import ManageActions from "@/components/ManageActions";
 
-export const dynamic = "force-dynamic";
+// helper: time left as string (7-day expiry badge)
+function timeLeft(expiresAt: Date) {
+  const ms = +new Date(expiresAt) - Date.now();
+  if (ms <= 0) return "expired";
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  if (hours < 24) return `${hours}h left`;
+  const days = Math.ceil(hours / 24);
+  return `${days}d left`;
+}
 
 export default async function ManageJobsPage() {
   const me = await getCurrentUser();
   if (!me) {
     return (
-      <div className="max-w-6xl mx-auto p-6 text-slate-100">
-        <h1 className="text-2xl font-bold">Manage Listings</h1>
-        <p className="mt-2 text-slate-300">Please sign in.</p>
+      <div className="space-y-4">
+        <h1 className="text-2xl font-semibold">Manage Listings</h1>
+        <p className="opacity-80">Please sign in as an employer to manage your listings.</p>
       </div>
     );
   }
 
-  // Ensure the user has an employer profile
-  const employer = await prisma.employerProfile.findFirst({
-    where: { userId: me.id },
-    select: { id: true },
-  });
-
-  if (!employer) {
-    return (
-      <div className="max-w-6xl mx-auto p-6 text-slate-100">
-        <h1 className="text-2xl font-bold">Manage Listings</h1>
-        <p className="mt-2 text-slate-300">
-          You need an employer profile to manage listings.
-        </p>
-        <div className="mt-4">
-          <Link
-            href="/post"
-            className="inline-block rounded-md bg-white px-3 py-2 text-sm font-medium text-black"
-          >
-            Create your first listing
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
+  // Employer-only: jobs where employerProfile.userId = me.id
   const jobs = await prisma.job.findMany({
     where: { employerProfile: { userId: me.id } },
     orderBy: { createdAt: "desc" },
@@ -50,97 +33,89 @@ export default async function ManageJobsPage() {
       title: true,
       businessName: true,
       status: true,
-      viewsCount: true,
-      inquiriesCount: true,
       createdAt: true,
+      expiresAt: true,
       location: { select: { city: true, state: true } },
       photos: { select: { url: true }, take: 1 },
     },
   });
 
   return (
-    <div className="max-w-6xl mx-auto p-6 text-slate-100">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Manage Listings</h1>
+    <div className="space-y-5">
+      <div className="flex items-end justify-between">
+        <h1 className="text-2xl font-semibold">Manage Listings</h1>
         <Link
           href="/post"
-          className="rounded-md bg-white px-3 py-2 text-sm font-medium text-black"
+          className="rounded-lg border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10"
         >
-          Post a Job
+          + New Listing
         </Link>
       </div>
 
       {jobs.length === 0 ? (
-        <div className="rounded-lg border border-white/10 p-6">
-          <p className="text-slate-300">No listings yet.</p>
+        <div className="rounded-xl border border-slate-800 p-6 text-sm opacity-80">
+          You haven’t posted any listings yet.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-white/10">
-          <table className="min-w-full text-sm">
-            <thead className="bg-white/5 text-left text-slate-300">
-              <tr>
-                <th className="px-4 py-2">Listing</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Views</th>
-                <th className="px-4 py-2">Inquiries</th>
-                <th className="px-4 py-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.map((j) => (
-                <tr key={j.id} className="border-t border-white/10">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={j.photos?.[0]?.url ?? "/placeholder.jpg"}
-                        className="h-12 w-12 rounded-md object-cover"
-                        alt=""
-                      />
-                      <div>
-                        <div className="font-medium text-slate-100">
-                          {j.businessName || "Business"}
-                        </div>
-                        <div className="text-slate-300">{j.title}</div>
-                        <div className="text-xs text-slate-400">
-                          {[j.location?.city, j.location?.state]
-                            .filter(Boolean)
-                            .join(", ")}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs " +
-                        (j.status === "ACTIVE"
-                          ? "bg-green-500/20 text-green-300"
-                          : j.status === "PAUSED"
-                          ? "bg-yellow-500/20 text-yellow-300"
-                          : "bg-slate-500/20 text-slate-300")
-                      }
+        <div className="divide-y divide-slate-800 rounded-xl border border-slate-800 bg-black/20">
+          {jobs.map((j) => {
+            const photo = j.photos[0]?.url || "/placeholder.jpg";
+            const left = j.expiresAt ? timeLeft(j.expiresAt as any) : undefined;
+            const expired = left === "expired";
+
+            return (
+              <div key={j.id} className="grid grid-cols-[110px_1fr_auto] gap-4 p-4 sm:gap-6 sm:p-5">
+                {/* thumb */}
+                <img
+                  src={photo}
+                  alt=""
+                  className="h-20 w-28 rounded-md border border-slate-800 object-cover"
+                />
+
+                {/* main */}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <Link
+                      href={`/jobs/${j.id}`}
+                      className="truncate text-base font-medium hover:underline"
+                      title={j.title}
                     >
-                      {j.status}
+                      {j.businessName} — {j.title}
+                    </Link>
+                    <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[11px] uppercase tracking-wide opacity-80">
+                      {j.status ?? "ACTIVE"}
                     </span>
-                  </td>
-                  <td className="px-4 py-3">{j.viewsCount ?? 0}</td>
-                  <td className="px-4 py-3">{j.inquiriesCount ?? 0}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      <Link
-                        href={`/jobs/${j.id}`}
-                        className="rounded-md border border-white/20 px-2 py-1 text-xs hover:bg-white/10"
+                    {left && (
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ${
+                          expired
+                            ? "border border-red-500/40 bg-red-500/10 text-red-300"
+                            : "border border-red-500/30 bg-red-500/5 text-red-200"
+                        }`}
+                        title={j.expiresAt?.toString()}
                       >
-                        View
-                      </Link>
-                      {/* Edit can point to /post?edit=<id> later */}
-                      <ManageActions id={j.id} status={j.status as "ACTIVE" | "PAUSED" | "CLOSED"} />
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        {left}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-sm opacity-80">
+                    {j.location?.city ? `${j.location.city}, ${j.location.state || "CA"}` : "—"}
+                  </div>
+                </div>
+
+                {/* actions */}
+                <div className="flex flex-col items-end gap-2">
+                  <Link
+                    href={`/jobs/${j.id}`}
+                    className="rounded-md border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10"
+                  >
+                    View
+                  </Link>
+                  {/* you can add Pause/Delete later */}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
