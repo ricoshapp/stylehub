@@ -2,138 +2,87 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { z } from "zod";
-import path from "path";
-import fs from "fs/promises";
-import crypto from "crypto";
+import { zJobCreate } from "@/lib/validation";
 
-/** ---------- zod shape (kept minimal + compatible with your client) ---------- */
-const zLocation = z.object({
-  lat: z.number(),
-  lng: z.number(),
-  addressLine1: z.string().optional().nullable(),
-  city: z.string().optional().nullable(),
-  state: z.string().optional().nullable(),
-  postalCode: z.string().optional().nullable(),
-  country: z.string().optional().nullable(),
-});
-
-const zJobCreate = z.object({
-  businessName: z.string().min(1, "Business name required"),
-  title: z.string().min(1).max(60),       // short title capped per your request
-  role: z.enum([
-    "barber",
-    "cosmetologist",
-    "tattoo_artist",
-    // leave other roles out since you asked to restrict UI to these 3
-  ]),
-  compModel: z.enum(["booth_rent", "commission", "hourly", "hybrid"]),
-  payMin: z.number().int().nonnegative().nullable().optional(),
-  payMax: z.number().int().nonnegative().nullable().optional(),
-  payUnit: z.string(),                    // "$/hr", "$/wk", etc.
-  payVisible: z.boolean(),
-  employmentType: z.enum(["w2", "c1099"]).nullable().optional(),
-  schedule: z.enum(["full_time", "part_time"]).nullable().optional(),
-  experienceText: z.string().max(20).nullable().optional(), // 20 chars max
-  description: z.string().max(200).optional().default(""),
-  // we collapsed shiftDays in your schema — if you still have it, add here
-  location: zLocation,
-  photos: z.array(z.string()).max(6).optional().default([]), // data URLs from client
-});
-
-/** ---------- helpers ---------- */
-function extFromMime(mime: string) {
-  if (mime === "image/png") return "png";
-  if (mime === "image/webp") return "webp";
-  // default jpg for jpeg & unknowns
-  return "jpg";
-}
-
-/** Save a data URL (data:image/...;base64,XXXX) into /public/uploads, return web path */
-async function saveDataUrl(dataUrl: string): Promise<string> {
-  const m = dataUrl.match(/^data:(image\/[a-zA-Z+.-]+);base64,(.+)$/);
-  if (!m) throw new Error("Invalid image data URL");
-  const mime = m[1];
-  const b64 = m[2];
-  const buf = Buffer.from(b64, "base64");
-
-  const uploadsDir = path.join(process.cwd(), "public", "uploads");
-  await fs.mkdir(uploadsDir, { recursive: true });
-
-  const name = `${Date.now()}-${(crypto as any).randomUUID?.() ?? Math.random().toString(36).slice(2)}.${extFromMime(mime)}`;
-  const abs = path.join(uploadsDir, name);
-  await fs.writeFile(abs, buf);
-
-  // web-accessible path
-  return `/uploads/${name}`;
-}
-
-/** Create or reuse employer profile for user (ties job to shop) */
-async function getOrCreateEmployerProfile(userId: string, shopName: string, locationId: string) {
+/** Ensure the current user has an EmployerProfile; create minimal one if missing. */
+async function ensureEmployerProfile(ownerId: string, shopName: string, locationId?: string) {
   const existing = await prisma.employerProfile.findFirst({
-    where: { userId },
+    where: { userId: ownerId },
     select: { id: true },
   });
   if (existing) return existing.id;
 
   const created = await prisma.employerProfile.create({
     data: {
-      user: { connect: { id: userId } },
-      shopName,
-      location: { connect: { id: locationId } },
+      user: { connect: { id: ownerId } },
+      shopName: shopName || "My Shop",
+      ...(locationId ? { location: { connect: { id: locationId } } } : {}),
     },
     select: { id: true },
   });
   return created.id;
 }
 
-/** ---------- POST /api/jobs (create) ---------- */
+// Decode dataURL -> { mime, data(Buffer) } — (we’re just storing raw DataURL for now)
+function isDataUrl(s: string) {
+  return /^data:image\/[a-zA-Z]+;base64,/.test(s);
+}
+
 export async function POST(req: Request) {
   try {
     const me = await getCurrentUser();
-    if (!me) {
-      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    }
+    if (!me) return NextResponse.json({ message: "Not signed in" }, { status: 401 });
 
-    const json = await req.json();
-    const parsed = zJobCreate.safeParse(json);
+    const body = await req.json();
+
+    // NOTE: your zod schema may still require fields. We’ll coerce/allow nullables here.
+    const parsed = zJobCreate
+      .extend({
+        // allow nullables for comp fields explicitly, if your schema was stricter
+        payMin: zJobCreate.shape.payMin.nullable().optional(),
+        payMax: zJobCreate.shape.payMax.nullable().optional(),
+        employmentType: zJobCreate.shape.employmentType.nullable().optional(),
+        schedule: zJobCreate.shape.schedule.nullable().optional(),
+      })
+      .safeParse(body);
+
     if (!parsed.success) {
       return NextResponse.json(
         { message: "Validation failed", issues: parsed.error.flatten() },
         { status: 400 }
       );
     }
+
     const data = parsed.data;
 
-    // 1) Location (create new each post; safe + simple)
-    const loc = await prisma.location.create({
-      data: {
-        lat: data.location.lat,
-        lng: data.location.lng,
-        addressLine1: data.location.addressLine1 ?? null,
-        city: data.location.city ?? null,
-        state: data.location.state ?? null,
-        postalCode: data.location.postalCode ?? null,
-        country: data.location.country ?? "US",
-      },
-      select: { id: true },
-    });
-
-    // 2) Ensure employer profile exists for this user
-    const employerProfileId = await getOrCreateEmployerProfile(me.id, data.businessName, loc.id);
-
-    // 3) Save photos (if any) to /public/uploads and prep nested create
-    const urls: string[] = [];
-    for (const d of data.photos ?? []) {
-      try {
-        urls.push(await saveDataUrl(d));
-      } catch {
-        // ignore image failures individually to avoid failing entire post
-      }
+    // Create or reuse Location
+    let locationId: string | undefined = undefined;
+    if (data.location) {
+      const loc = await prisma.location.create({
+        data: {
+          lat: data.location.lat,
+          lng: data.location.lng,
+          addressLine1: data.location.address || data.location.addressLine1 || "",
+          city: data.location.city || "",
+          state: data.location.state || "CA",
+          postalCode: data.location.postalCode || "",
+          country: data.location.country || "US",
+          // county is optional in your schema; add if present
+          ...(!!(data as any).location.county ? { county: (data as any).location.county } : {}),
+        },
+        select: { id: true },
+      });
+      locationId = loc.id;
     }
 
-    // 4) Create job + nested photos
-    const created = await prisma.job.create({
+    // Ensure employer profile
+    const employerProfileId = await ensureEmployerProfile(me.id, data.businessName, locationId);
+
+    // Derive expiresAt (7 days)
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    // Create job
+    const job = await prisma.job.create({
       data: {
         employerProfile: { connect: { id: employerProfileId } },
         businessName: data.businessName,
@@ -142,45 +91,40 @@ export async function POST(req: Request) {
         compModel: data.compModel,
         payMin: data.payMin ?? null,
         payMax: data.payMax ?? null,
-        payUnit: data.payUnit,
-        payVisible: data.payVisible,
+        payUnit: data.payUnit || "",
+        payVisible: !!data.payVisible,
         employmentType: data.employmentType ?? null,
-        schedule: data.schedule ?? null,
-        experienceText: (data.experienceText ?? null) || null,
-        description: data.description ?? "",
-        location: { connect: { id: loc.id } },
-        imagesCount: urls.length,
-        // optional: status defaults in schema; views/inquiries default 0 in schema
-        photos: urls.length
-          ? {
-              create: urls.map((u) => ({ url: u })),
-            }
-          : undefined,
+        schedule: data.schedule ?? null, // we pass "any" as literal or null; listing renders it
+        experienceText: data.experienceText ?? null,
+        description: data.description || "",
+        startDate: null,
+        ...(locationId ? { location: { connect: { id: locationId } } } : {}),
+        expiresAt,
+        // photos created below
       },
-      include: {
-        location: true,
-        photos: true,
-      },
+      select: { id: true },
     });
 
-    return NextResponse.json(created, { status: 201 });
+    // Store first image as a JobPhoto with `url` = DataURL (or external URL if provided)
+    if (Array.isArray(data.photos) && data.photos.length > 0) {
+      const filtered = data.photos.filter((p) => typeof p === "string" && p.length > 0);
+      if (filtered.length) {
+        await prisma.jobPhoto.createMany({
+          data: filtered.map((p, idx) => ({
+            jobId: job.id,
+            url: p, // DataURL for now; later we’ll swap to storage URLs
+            order: idx,
+          })),
+        });
+      }
+    }
+
+    return NextResponse.json({ ok: true, id: job.id });
   } catch (err: any) {
+    console.error(err);
     return NextResponse.json(
-      {
-        message: "Failed to create job",
-        detail: err?.message ?? String(err),
-      },
+      { message: "Failed to create job", detail: String(err?.message || err) },
       { status: 500 }
     );
   }
-}
-
-/** ---------- GET /api/jobs (simple list for debugging; your page queries Prisma directly) ---------- */
-export async function GET() {
-  const rows = await prisma.job.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    include: { location: true, photos: true },
-  });
-  return NextResponse.json(rows);
 }

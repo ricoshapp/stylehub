@@ -33,14 +33,14 @@ export const zJobCreate = z.object({
   compModel: z.enum(["booth_rent", "commission", "hourly", "hybrid"]),
 
   // Integers only when present, but allow null/omitted
-  payMin: z.number().int().nonnegative().nullable().optional(),
-  payMax: z.number().int().nonnegative().nullable().optional(),
+  payMin: z.number().int().nonnegative().optional().nullable(),
+  payMax: z.number().int().nonnegative().optional().nullable(),
 
   payUnit: z.string(), // "$/hr", "$/d", "% & $/hr", etc.
   payVisible: z.boolean(),
 
   // Allow null/omitted
-  employmentType: z.enum(["w2", "c1099"]).nullable().optional(),
+  employmentType: z.enum(["w2","c1099"]).optional().nullable(),
   // If you support "any" in UI, include it here:
   schedule: z.enum(["full_time", "part_time", "any"]).nullable().optional(),
 
