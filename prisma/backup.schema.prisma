@@ -116,7 +116,7 @@ model Job {
   inquiries          Inquiry[]
   viewsCount         Int              @default(0)
   inquiriesCount     Int              @default(0)
-  expiresAt          DateTime?        @map("expiresAt")
+  expiresAt          DateTime?        @map("expires_at")
 
   @@index([role])
   @@index([status])
@@ -223,7 +223,7 @@ model Account {
   providerAccountId  String
   refresh_token      String?
   access_token       String?
-  expiresAt          Int?
+  expires_at         Int?
   token_type         String?
   scope              String?
   id_token           String?
